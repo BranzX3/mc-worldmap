@@ -1,0 +1,3512 @@
+{
+ "black_concrete": {
+  "rgb": [
+   8.4,
+   10.4,
+   15.4
+  ],
+  "luma": 10.3,
+  "variance": 1.0
+ },
+ "dragon_egg": {
+  "rgb": [
+   12.5,
+   9.4,
+   15.7
+  ],
+  "luma": 10.6,
+  "variance": 7.8
+ },
+ "obsidian": {
+  "rgb": [
+   15.1,
+   10.6,
+   24.6
+  ],
+  "luma": 12.6,
+  "variance": 18.2
+ },
+ "coal_block": {
+  "rgb": [
+   16.0,
+   15.9,
+   15.9
+  ],
+  "luma": 15.9,
+  "variance": 8.6
+ },
+ "crying_obsidian": {
+  "rgb": [
+   32.6,
+   10.1,
+   60.4
+  ],
+  "luma": 18.5,
+  "variance": 36.9
+ },
+ "red_nether_bricks": {
+  "rgb": [
+   69.5,
+   7.0,
+   9.0
+  ],
+  "luma": 20.5,
+  "variance": 12.5
+ },
+ "black_wool": {
+  "rgb": [
+   20.6,
+   21.3,
+   25.6
+  ],
+  "luma": 21.5,
+  "variance": 7.6
+ },
+ "cracked_nether_bricks": {
+  "rgb": [
+   40.4,
+   20.0,
+   24.0
+  ],
+  "luma": 24.6,
+  "variance": 9.8
+ },
+ "black_terracotta": {
+  "rgb": [
+   37.2,
+   22.8,
+   16.4
+  ],
+  "luma": 25.4,
+  "variance": 0.9
+ },
+ "black_shulker_box": {
+  "rgb": [
+   25.1,
+   25.4,
+   29.5
+  ],
+  "luma": 25.6,
+  "variance": 6.2
+ },
+ "nether_wart_block": {
+  "rgb": [
+   114.8,
+   2.9,
+   2.2
+  ],
+  "luma": 26.7,
+  "variance": 11.3
+ },
+ "nether_bricks": {
+  "rgb": [
+   44.3,
+   21.9,
+   26.1
+  ],
+  "luma": 26.9,
+  "variance": 9.3
+ },
+ "chiseled_nether_bricks": {
+  "rgb": [
+   45.8,
+   22.9,
+   27.3
+  ],
+  "luma": 28.1,
+  "variance": 10.9
+ },
+ "black_bed_foot_up": {
+  "rgb": [
+   33.8,
+   33.8,
+   39.0
+  ],
+  "luma": 34.2,
+  "variance": 4.0
+ },
+ "blackstone": {
+  "rgb": [
+   42.2,
+   35.5,
+   40.7
+  ],
+  "luma": 37.3,
+  "variance": 16.5
+ },
+ "black_glazed_terracotta": {
+  "rgb": [
+   67.7,
+   30.0,
+   32.2
+  ],
+  "luma": 38.2,
+  "variance": 28.5
+ },
+ "cherry_log": {
+  "rgb": [
+   54.7,
+   33.0,
+   44.4
+  ],
+  "luma": 38.4,
+  "variance": 10.0
+ },
+ "cracked_polished_blackstone_bricks": {
+  "rgb": [
+   44.0,
+   37.6,
+   43.9
+  ],
+  "luma": 39.4,
+  "variance": 19.1
+ },
+ "jigsaw_lock": {
+  "rgb": [
+   45.0,
+   38.2,
+   47.4
+  ],
+  "luma": 40.3,
+  "variance": 44.3
+ },
+ "spruce_log": {
+  "rgb": [
+   58.8,
+   37.7,
+   16.9
+  ],
+  "luma": 40.7,
+  "variance": 9.0
+ },
+ "polished_blackstone_bricks": {
+  "rgb": [
+   48.3,
+   42.5,
+   49.8
+  ],
+  "luma": 44.3,
+  "variance": 17.7
+ },
+ "gray_terracotta": {
+  "rgb": [
+   57.8,
+   42.4,
+   35.6
+  ],
+  "luma": 45.2,
+  "variance": 1.0
+ },
+ "gilded_blackstone": {
+  "rgb": [
+   55.6,
+   42.9,
+   38.3
+  ],
+  "luma": 45.3,
+  "variance": 31.6
+ },
+ "dark_oak_planks": {
+  "rgb": [
+   66.7,
+   43.1,
+   20.2
+  ],
+  "luma": 46.5,
+  "variance": 9.4
+ },
+ "dark_oak_log": {
+  "rgb": [
+   60.4,
+   46.6,
+   26.2
+  ],
+  "luma": 48.0,
+  "variance": 8.6
+ },
+ "hopper_inside": {
+  "rgb": [
+   49.2,
+   49.0,
+   53.3
+  ],
+  "luma": 49.4,
+  "variance": 8.0
+ },
+ "polished_blackstone": {
+  "rgb": [
+   53.2,
+   48.6,
+   56.7
+  ],
+  "luma": 50.2,
+  "variance": 15.9
+ },
+ "farmland_moist": {
+  "rgb": [
+   81.9,
+   44.5,
+   15.5
+  ],
+  "luma": 50.3,
+  "variance": 14.7
+ },
+ "chiseled_polished_blackstone": {
+  "rgb": [
+   54.0,
+   48.7,
+   56.8
+  ],
+  "luma": 50.4,
+  "variance": 20.0
+ },
+ "netherrack": {
+  "rgb": [
+   97.6,
+   38.4,
+   38.4
+  ],
+  "luma": 51.0,
+  "variance": 13.8
+ },
+ "blue_shulker_box": {
+  "rgb": [
+   43.7,
+   45.6,
+   140.2
+  ],
+  "luma": 52.0,
+  "variance": 10.8
+ },
+ "cracked_deepslate_tiles": {
+  "rgb": [
+   52.6,
+   52.5,
+   52.7
+  ],
+  "luma": 52.6,
+  "variance": 14.8
+ },
+ "crimson_nylium": {
+  "rgb": [
+   130.9,
+   31.4,
+   31.5
+  ],
+  "luma": 52.6,
+  "variance": 21.8
+ },
+ "dark_oak_shelf": {
+  "rgb": [
+   65.7,
+   51.2,
+   32.6
+  ],
+  "luma": 52.9,
+  "variance": 8.2
+ },
+ "blue_concrete": {
+  "rgb": [
+   44.5,
+   46.5,
+   143.4
+  ],
+  "luma": 53.1,
+  "variance": 0.6
+ },
+ "red_shulker_box": {
+  "rgb": [
+   140.4,
+   31.1,
+   30.0
+  ],
+  "luma": 54.2,
+  "variance": 9.2
+ },
+ "chiseled_deepslate": {
+  "rgb": [
+   54.3,
+   54.3,
+   54.9
+  ],
+  "luma": 54.4,
+  "variance": 16.1
+ },
+ "deepslate_tiles": {
+  "rgb": [
+   54.9,
+   54.8,
+   55.1
+  ],
+  "luma": 54.8,
+  "variance": 15.0
+ },
+ "purple_concrete": {
+  "rgb": [
+   100.4,
+   31.6,
+   156.4
+  ],
+  "luma": 55.3,
+  "variance": 0.7
+ },
+ "redstone_block": {
+  "rgb": [
+   175.6,
+   24.8,
+   5.1
+  ],
+  "luma": 55.4,
+  "variance": 17.6
+ },
+ "brown_terracotta": {
+  "rgb": [
+   77.2,
+   51.2,
+   35.7
+  ],
+  "luma": 55.6,
+  "variance": 1.3
+ },
+ "red_concrete": {
+  "rgb": [
+   142.4,
+   32.8,
+   32.8
+  ],
+  "luma": 56.1,
+  "variance": 0.9
+ },
+ "purple_shulker_box": {
+  "rgb": [
+   103.2,
+   32.5,
+   156.4
+  ],
+  "luma": 56.4,
+  "variance": 10.8
+ },
+ "gray_concrete": {
+  "rgb": [
+   54.6,
+   57.6,
+   61.6
+  ],
+  "luma": 57.3,
+  "variance": 0.5
+ },
+ "mud": {
+  "rgb": [
+   60.1,
+   57.5,
+   60.6
+  ],
+  "luma": 58.3,
+  "variance": 6.6
+ },
+ "gray_shulker_box": {
+  "rgb": [
+   55.3,
+   58.8,
+   62.5
+  ],
+  "luma": 58.3,
+  "variance": 7.8
+ },
+ "mangrove_shelf": {
+  "rgb": [
+   109.4,
+   45.0,
+   42.0
+  ],
+  "luma": 58.5,
+  "variance": 11.0
+ },
+ "stripped_dark_oak_log": {
+  "rgb": [
+   72.8,
+   56.9,
+   36.0
+  ],
+  "luma": 58.8,
+  "variance": 4.4
+ },
+ "soul_soil": {
+  "rgb": [
+   75.8,
+   57.5,
+   46.6
+  ],
+  "luma": 60.6,
+  "variance": 13.0
+ },
+ "structure_block_corner": {
+  "rgb": [
+   68.5,
+   57.6,
+   69.6
+  ],
+  "luma": 60.8,
+  "variance": 59.7
+ },
+ "structure_block_load": {
+  "rgb": [
+   69.4,
+   57.7,
+   70.6
+  ],
+  "luma": 61.1,
+  "variance": 59.9
+ },
+ "crimson_planks": {
+  "rgb": [
+   101.0,
+   48.8,
+   70.6
+  ],
+  "luma": 61.5,
+  "variance": 17.1
+ },
+ "redstone_lamp": {
+  "rgb": [
+   95.2,
+   54.6,
+   30.1
+  ],
+  "luma": 61.5,
+  "variance": 28.8
+ },
+ "netherite_block": {
+  "rgb": [
+   66.5,
+   61.5,
+   63.9
+  ],
+  "luma": 62.7,
+  "variance": 15.5
+ },
+ "fire_coral_block": {
+  "rgb": [
+   163.7,
+   35.2,
+   46.9
+  ],
+  "luma": 63.3,
+  "variance": 15.1
+ },
+ "blue_wool": {
+  "rgb": [
+   53.1,
+   57.3,
+   157.5
+  ],
+  "luma": 63.6,
+  "variance": 7.5
+ },
+ "note_block": {
+  "rgb": [
+   88.8,
+   58.9,
+   40.8
+  ],
+  "luma": 64.0,
+  "variance": 24.4
+ },
+ "lapis_block": {
+  "rgb": [
+   30.6,
+   67.4,
+   140.1
+  ],
+  "luma": 64.8,
+  "variance": 9.2
+ },
+ "red_wool": {
+  "rgb": [
+   161.0,
+   39.3,
+   34.6
+  ],
+  "luma": 64.8,
+  "variance": 6.6
+ },
+ "cracked_deepslate_bricks": {
+  "rgb": [
+   65.0,
+   64.9,
+   65.2
+  ],
+  "luma": 64.9,
+  "variance": 22.6
+ },
+ "blue_terracotta": {
+  "rgb": [
+   74.3,
+   59.7,
+   91.1
+  ],
+  "luma": 65.1,
+  "variance": 1.3
+ },
+ "brown_concrete": {
+  "rgb": [
+   96.4,
+   59.5,
+   31.6
+  ],
+  "luma": 65.4,
+  "variance": 0.6
+ },
+ "soul_sand": {
+  "rgb": [
+   81.4,
+   62.2,
+   50.7
+  ],
+  "luma": 65.4,
+  "variance": 16.3
+ },
+ "bubble_coral_block": {
+  "rgb": [
+   165.3,
+   26.3,
+   162.2
+  ],
+  "luma": 65.7,
+  "variance": 19.9
+ },
+ "hopper_outside": {
+  "rgb": [
+   66.6,
+   65.9,
+   68.2
+  ],
+  "luma": 66.2,
+  "variance": 15.0
+ },
+ "blue_glazed_terracotta": {
+  "rgb": [
+   47.5,
+   64.6,
+   139.4
+  ],
+  "luma": 66.4,
+  "variance": 35.9
+ },
+ "mangrove_planks": {
+  "rgb": [
+   118.0,
+   54.1,
+   48.7
+  ],
+  "luma": 67.3,
+  "variance": 12.6
+ },
+ "gray_wool": {
+  "rgb": [
+   62.7,
+   68.2,
+   71.6
+  ],
+  "luma": 67.3,
+  "variance": 5.9
+ },
+ "chorus_plant": {
+  "rgb": [
+   93.9,
+   57.1,
+   93.8
+  ],
+  "luma": 67.6,
+  "variance": 26.1
+ },
+ "stripped_mangrove_log": {
+  "rgb": [
+   119.5,
+   54.4,
+   48.0
+  ],
+  "luma": 67.8,
+  "variance": 3.8
+ },
+ "mangrove_log": {
+  "rgb": [
+   83.6,
+   66.7,
+   41.1
+  ],
+  "luma": 68.5,
+  "variance": 9.1
+ },
+ "anvil": {
+  "rgb": [
+   68.5,
+   68.5,
+   68.5
+  ],
+  "luma": 68.5,
+  "variance": 9.5
+ },
+ "jungle_log": {
+  "rgb": [
+   85.2,
+   68.0,
+   25.2
+  ],
+  "luma": 68.6,
+  "variance": 11.9
+ },
+ "purple_wool": {
+  "rgb": [
+   121.9,
+   42.2,
+   172.5
+  ],
+  "luma": 68.6,
+  "variance": 11.6
+ },
+ "purple_glazed_terracotta": {
+  "rgb": [
+   109.8,
+   47.9,
+   152.4
+  ],
+  "luma": 68.6,
+  "variance": 37.9
+ },
+ "structure_block_data": {
+  "rgb": [
+   79.2,
+   65.9,
+   80.5
+  ],
+  "luma": 69.8,
+  "variance": 67.4
+ },
+ "purple_bed_foot_up": {
+  "rgb": [
+   127.6,
+   42.8,
+   177.7
+  ],
+  "luma": 70.5,
+  "variance": 6.6
+ },
+ "crimson_shelf": {
+  "rgb": [
+   129.4,
+   52.1,
+   82.8
+  ],
+  "luma": 70.7,
+  "variance": 13.2
+ },
+ "deepslate_bricks": {
+  "rgb": [
+   71.0,
+   70.9,
+   71.3
+  ],
+  "luma": 70.9,
+  "variance": 22.1
+ },
+ "creaking_heart": {
+  "rgb": [
+   82.4,
+   68.4,
+   63.2
+  ],
+  "luma": 71.0,
+  "variance": 24.9
+ },
+ "brown_shulker_box": {
+  "rgb": [
+   106.3,
+   66.1,
+   36.0
+  ],
+  "luma": 72.5,
+  "variance": 6.5
+ },
+ "creaking_heart_dormant": {
+  "rgb": [
+   102.0,
+   66.1,
+   49.0
+  ],
+  "luma": 72.5,
+  "variance": 28.4
+ },
+ "polished_deepslate": {
+  "rgb": [
+   72.5,
+   72.6,
+   73.1
+  ],
+  "luma": 72.6,
+  "variance": 20.2
+ },
+ "smooth_basalt": {
+  "rgb": [
+   72.7,
+   72.3,
+   78.2
+  ],
+  "luma": 72.8,
+  "variance": 15.9
+ },
+ "chiseled_bookshelf_empty": {
+  "rgb": [
+   90.3,
+   71.0,
+   41.6
+  ],
+  "luma": 73.0,
+  "variance": 50.0
+ },
+ "chiseled_cinnabar": {
+  "rgb": [
+   146.6,
+   55.4,
+   55.0
+  ],
+  "luma": 74.7,
+  "variance": 21.2
+ },
+ "red_bed_foot_up": {
+  "rgb": [
+   178.3,
+   47.5,
+   40.1
+  ],
+  "luma": 74.8,
+  "variance": 6.9
+ },
+ "cinnabar_bricks": {
+  "rgb": [
+   148.2,
+   55.6,
+   53.7
+  ],
+  "luma": 75.2,
+  "variance": 17.9
+ },
+ "structure_block_save": {
+  "rgb": [
+   86.4,
+   71.5,
+   87.6
+  ],
+  "luma": 75.9,
+  "variance": 66.6
+ },
+ "item_frame": {
+  "rgb": [
+   116.7,
+   67.4,
+   42.8
+  ],
+  "luma": 76.1,
+  "variance": 19.2
+ },
+ "stripped_crimson_stem": {
+  "rgb": [
+   137.3,
+   57.3,
+   90.1
+  ],
+  "luma": 76.7,
+  "variance": 7.7
+ },
+ "red_terracotta": {
+  "rgb": [
+   143.1,
+   61.0,
+   46.9
+  ],
+  "luma": 77.5,
+  "variance": 2.2
+ },
+ "cobbled_deepslate": {
+  "rgb": [
+   77.3,
+   77.3,
+   80.6
+  ],
+  "luma": 77.5,
+  "variance": 20.4
+ },
+ "polished_cinnabar": {
+  "rgb": [
+   152.5,
+   57.6,
+   55.0
+  ],
+  "luma": 77.6,
+  "variance": 17.2
+ },
+ "brown_wool": {
+  "rgb": [
+   114.2,
+   71.6,
+   40.6
+  ],
+  "luma": 78.4,
+  "variance": 7.7
+ },
+ "structure_block": {
+  "rgb": [
+   88.9,
+   74.4,
+   90.1
+  ],
+  "luma": 78.6,
+  "variance": 71.3
+ },
+ "green_terracotta": {
+  "rgb": [
+   76.0,
+   83.3,
+   42.3
+  ],
+  "luma": 78.8,
+  "variance": 1.4
+ },
+ "red_mushroom_block": {
+  "rgb": [
+   200.2,
+   46.9,
+   45.0
+  ],
+  "luma": 79.4,
+  "variance": 23.2
+ },
+ "pale_oak_log": {
+  "rgb": [
+   87.6,
+   77.6,
+   75.0
+  ],
+  "luma": 79.5,
+  "variance": 16.8
+ },
+ "deepslate": {
+  "rgb": [
+   80.1,
+   80.1,
+   82.6
+  ],
+  "luma": 80.3,
+  "variance": 20.5
+ },
+ "purple_terracotta": {
+  "rgb": [
+   118.4,
+   70.3,
+   86.1
+  ],
+  "luma": 81.7,
+  "variance": 2.3
+ },
+ "dark_prismarine": {
+  "rgb": [
+   51.9,
+   91.6,
+   75.9
+  ],
+  "luma": 82.0,
+  "variance": 16.4
+ },
+ "magenta_concrete": {
+  "rgb": [
+   169.2,
+   48.5,
+   159.2
+  ],
+  "luma": 82.1,
+  "variance": 0.9
+ },
+ "green_concrete": {
+  "rgb": [
+   73.4,
+   91.3,
+   36.5
+  ],
+  "luma": 83.6,
+  "variance": 0.6
+ },
+ "spruce_shelf": {
+  "rgb": [
+   104.2,
+   83.0,
+   47.6
+  ],
+  "luma": 84.9,
+  "variance": 10.6
+ },
+ "bedrock": {
+  "rgb": [
+   85.1,
+   85.1,
+   85.1
+  ],
+  "luma": 85.1,
+  "variance": 38.0
+ },
+ "red_glazed_terracotta": {
+  "rgb": [
+   182.0,
+   59.6,
+   53.0
+  ],
+  "luma": 85.1,
+  "variance": 25.0
+ },
+ "magenta_shulker_box": {
+  "rgb": [
+   173.9,
+   54.1,
+   163.6
+  ],
+  "luma": 87.4,
+  "variance": 11.6
+ },
+ "tube_coral_block": {
+  "rgb": [
+   49.1,
+   87.1,
+   206.6
+  ],
+  "luma": 87.7,
+  "variance": 21.2
+ },
+ "oak_log": {
+  "rgb": [
+   109.1,
+   85.1,
+   50.7
+  ],
+  "luma": 87.7,
+  "variance": 19.9
+ },
+ "spruce_planks": {
+  "rgb": [
+   114.9,
+   84.8,
+   48.6
+  ],
+  "luma": 88.6,
+  "variance": 13.4
+ },
+ "gray_glazed_terracotta": {
+  "rgb": [
+   83.1,
+   90.3,
+   93.6
+  ],
+  "luma": 89.0,
+  "variance": 33.1
+ },
+ "cyan_terracotta": {
+  "rgb": [
+   86.7,
+   91.0,
+   91.0
+  ],
+  "luma": 90.1,
+  "variance": 1.9
+ },
+ "coarse_dirt": {
+  "rgb": [
+   119.4,
+   85.6,
+   59.4
+  ],
+  "luma": 90.9,
+  "variance": 25.3
+ },
+ "green_shulker_box": {
+  "rgb": [
+   79.1,
+   100.9,
+   31.7
+  ],
+  "luma": 91.2,
+  "variance": 5.6
+ },
+ "warped_planks": {
+  "rgb": [
+   43.1,
+   104.9,
+   99.1
+  ],
+  "luma": 91.3,
+  "variance": 23.8
+ },
+ "blue_bed_foot_up": {
+  "rgb": [
+   65.4,
+   90.3,
+   185.1
+  ],
+  "luma": 91.9,
+  "variance": 7.6
+ },
+ "chiseled_tuff": {
+  "rgb": [
+   89.2,
+   94.3,
+   86.7
+  ],
+  "luma": 92.6,
+  "variance": 20.2
+ },
+ "stripped_spruce_log": {
+  "rgb": [
+   115.6,
+   90.0,
+   52.4
+  ],
+  "luma": 92.7,
+  "variance": 6.6
+ },
+ "carved_pumpkin": {
+  "rgb": [
+   150.2,
+   84.2,
+   17.3
+  ],
+  "luma": 93.4,
+  "variance": 47.5
+ },
+ "magenta_bed_foot_up": {
+  "rgb": [
+   185.3,
+   58.6,
+   175.1
+  ],
+  "luma": 93.9,
+  "variance": 7.7
+ },
+ "creaking_heart_awake": {
+  "rgb": [
+   149.9,
+   84.0,
+   49.1
+  ],
+  "luma": 95.5,
+  "variance": 36.1
+ },
+ "pink_terracotta": {
+  "rgb": [
+   161.9,
+   78.3,
+   78.7
+  ],
+  "luma": 96.1,
+  "variance": 2.3
+ },
+ "crafter_north_crafting": {
+  "rgb": [
+   103.6,
+   95.5,
+   82.5
+  ],
+  "luma": 96.3,
+  "variance": 44.8
+ },
+ "brown_bed_foot_up": {
+  "rgb": [
+   138.9,
+   88.3,
+   51.4
+  ],
+  "luma": 96.4,
+  "variance": 8.4
+ },
+ "bookshelf": {
+  "rgb": [
+   117.4,
+   94.6,
+   59.8
+  ],
+  "luma": 96.9,
+  "variance": 50.7
+ },
+ "orange_terracotta": {
+  "rgb": [
+   161.6,
+   83.9,
+   37.7
+  ],
+  "luma": 97.1,
+  "variance": 2.2
+ },
+ "cinnabar": {
+  "rgb": [
+   151.9,
+   82.7,
+   78.3
+  ],
+  "luma": 97.1,
+  "variance": 15.5
+ },
+ "acacia_log": {
+  "rgb": [
+   103.2,
+   96.6,
+   86.9
+  ],
+  "luma": 97.3,
+  "variance": 14.2
+ },
+ "chiseled_bookshelf_occupied": {
+  "rgb": [
+   121.3,
+   94.2,
+   70.0
+  ],
+  "luma": 98.2,
+  "variance": 52.9
+ },
+ "warped_nylium": {
+  "rgb": [
+   43.2,
+   114.3,
+   101.3
+  ],
+  "luma": 98.3,
+  "variance": 23.6
+ },
+ "green_wool": {
+  "rgb": [
+   84.8,
+   109.5,
+   27.5
+  ],
+  "luma": 98.4,
+  "variance": 7.7
+ },
+ "acacia_shelf": {
+  "rgb": [
+   156.1,
+   85.8,
+   53.6
+  ],
+  "luma": 98.4,
+  "variance": 13.3
+ },
+ "copper_bulb_powered": {
+  "rgb": [
+   156.6,
+   86.2,
+   57.0
+  ],
+  "luma": 99.1,
+  "variance": 33.7
+ },
+ "warped_wart_block": {
+  "rgb": [
+   22.8,
+   119.9,
+   121.1
+  ],
+  "luma": 99.4,
+  "variance": 11.5
+ },
+ "copper_bulb": {
+  "rgb": [
+   156.2,
+   86.9,
+   57.4
+  ],
+  "luma": 99.5,
+  "variance": 33.2
+ },
+ "cyan_concrete": {
+  "rgb": [
+   21.4,
+   119.2,
+   136.2
+  ],
+  "luma": 99.7,
+  "variance": 0.7
+ },
+ "moss_block": {
+  "rgb": [
+   89.1,
+   109.7,
+   45.4
+  ],
+  "luma": 100.7,
+  "variance": 12.3
+ },
+ "cyan_shulker_box": {
+  "rgb": [
+   20.2,
+   121.3,
+   135.1
+  ],
+  "luma": 100.8,
+  "variance": 10.4
+ },
+ "tuff_bricks": {
+  "rgb": [
+   98.1,
+   102.6,
+   95.3
+  ],
+  "luma": 101.1,
+  "variance": 22.2
+ },
+ "chiseled_tuff_bricks": {
+  "rgb": [
+   98.9,
+   103.3,
+   95.6
+  ],
+  "luma": 101.8,
+  "variance": 20.4
+ },
+ "dirt": {
+  "rgb": [
+   134.2,
+   96.3,
+   67.0
+  ],
+  "luma": 102.3,
+  "variance": 22.8
+ },
+ "polished_tuff": {
+  "rgb": [
+   97.6,
+   104.1,
+   99.9
+  ],
+  "luma": 102.5,
+  "variance": 13.2
+ },
+ "magenta_wool": {
+  "rgb": [
+   189.5,
+   68.8,
+   179.9
+  ],
+  "luma": 102.5,
+  "variance": 12.9
+ },
+ "magenta_terracotta": {
+  "rgb": [
+   149.7,
+   88.1,
+   108.7
+  ],
+  "luma": 102.7,
+  "variance": 2.2
+ },
+ "acacia_planks": {
+  "rgb": [
+   168.1,
+   90.4,
+   50.2
+  ],
+  "luma": 104.0,
+  "variance": 12.8
+ },
+ "terracotta": {
+  "rgb": [
+   152.1,
+   94.0,
+   67.7
+  ],
+  "luma": 104.5,
+  "variance": 1.8
+ },
+ "chiseled_resin_bricks": {
+  "rgb": [
+   200.7,
+   84.2,
+   24.8
+  ],
+  "luma": 104.7,
+  "variance": 24.4
+ },
+ "cyan_glazed_terracotta": {
+  "rgb": [
+   52.2,
+   118.7,
+   125.3
+  ],
+  "luma": 105.1,
+  "variance": 49.4
+ },
+ "gray_bed_foot_up": {
+  "rgb": [
+   95.3,
+   110.4,
+   114.0
+  ],
+  "luma": 107.4,
+  "variance": 6.4
+ },
+ "brown_glazed_terracotta": {
+  "rgb": [
+   120.0,
+   106.2,
+   85.9
+  ],
+  "luma": 107.7,
+  "variance": 43.1
+ },
+ "bricks": {
+  "rgb": [
+   151.0,
+   97.6,
+   83.1
+  ],
+  "luma": 107.9,
+  "variance": 24.5
+ },
+ "stripped_acacia_log": {
+  "rgb": [
+   174.7,
+   92.9,
+   59.8
+  ],
+  "luma": 107.9,
+  "variance": 5.8
+ },
+ "brewing_stand_base": {
+  "rgb": [
+   116.5,
+   105.9,
+   105.9
+  ],
+  "luma": 108.1,
+  "variance": 13.7
+ },
+ "tuff": {
+  "rgb": [
+   108.1,
+   109.1,
+   102.6
+  ],
+  "luma": 108.4,
+  "variance": 20.9
+ },
+ "resin_bricks": {
+  "rgb": [
+   205.8,
+   88.5,
+   24.2
+  ],
+  "luma": 108.8,
+  "variance": 24.2
+ },
+ "farmland": {
+  "rgb": [
+   143.2,
+   102.5,
+   70.8
+  ],
+  "luma": 108.9,
+  "variance": 23.5
+ },
+ "shulker_box": {
+  "rgb": [
+   139.3,
+   96.9,
+   139.3
+  ],
+  "luma": 109.0,
+  "variance": 11.7
+ },
+ "mud_bricks": {
+  "rgb": [
+   137.1,
+   103.8,
+   79.1
+  ],
+  "luma": 109.1,
+  "variance": 15.9
+ },
+ "crafter_north": {
+  "rgb": [
+   113.8,
+   108.8,
+   100.6
+  ],
+  "luma": 109.3,
+  "variance": 36.4
+ },
+ "green_bed_foot_up": {
+  "rgb": [
+   92.1,
+   123.7,
+   21.5
+  ],
+  "luma": 109.6,
+  "variance": 6.6
+ },
+ "lime_terracotta": {
+  "rgb": [
+   103.5,
+   117.7,
+   52.8
+  ],
+  "luma": 110.0,
+  "variance": 2.2
+ },
+ "glow_item_frame": {
+  "rgb": [
+   148.2,
+   103.4,
+   64.5
+  ],
+  "luma": 110.1,
+  "variance": 56.7
+ },
+ "rooted_dirt": {
+  "rgb": [
+   144.0,
+   103.6,
+   76.5
+  ],
+  "luma": 110.2,
+  "variance": 27.1
+ },
+ "chiseled_red_sandstone": {
+  "rgb": [
+   183.2,
+   96.9,
+   27.5
+  ],
+  "luma": 110.3,
+  "variance": 15.1
+ },
+ "pale_moss_block": {
+  "rgb": [
+   106.6,
+   112.4,
+   104.9
+  ],
+  "luma": 110.6,
+  "variance": 17.1
+ },
+ "pale_moss_carpet": {
+  "rgb": [
+   106.6,
+   112.4,
+   104.9
+  ],
+  "luma": 110.6,
+  "variance": 17.1
+ },
+ "exposed_copper_bulb_powered": {
+  "rgb": [
+   136.1,
+   106.4,
+   89.1
+  ],
+  "luma": 111.5,
+  "variance": 28.6
+ },
+ "light_blue_terracotta": {
+  "rgb": [
+   113.5,
+   108.5,
+   138.0
+  ],
+  "luma": 111.7,
+  "variance": 1.5
+ },
+ "granite": {
+  "rgb": [
+   149.4,
+   103.2,
+   86.0
+  ],
+  "luma": 111.8,
+  "variance": 21.4
+ },
+ "exposed_copper_bulb": {
+  "rgb": [
+   135.1,
+   107.5,
+   89.9
+  ],
+  "luma": 112.1,
+  "variance": 27.3
+ },
+ "dripstone_block": {
+  "rgb": [
+   134.5,
+   107.6,
+   92.5
+  ],
+  "luma": 112.2,
+  "variance": 17.7
+ },
+ "light_gray_terracotta": {
+  "rgb": [
+   135.3,
+   106.9,
+   97.5
+  ],
+  "luma": 112.2,
+  "variance": 1.6
+ },
+ "amethyst_block": {
+  "rgb": [
+   133.8,
+   98.0,
+   191.3
+  ],
+  "luma": 112.3,
+  "variance": 32.4
+ },
+ "packed_mud": {
+  "rgb": [
+   142.5,
+   106.7,
+   79.9
+  ],
+  "luma": 112.4,
+  "variance": 9.6
+ },
+ "red_sandstone": {
+  "rgb": [
+   186.7,
+   99.3,
+   29.2
+  ],
+  "luma": 112.9,
+  "variance": 14.1
+ },
+ "cyan_wool": {
+  "rgb": [
+   21.2,
+   137.7,
+   145.4
+  ],
+  "luma": 113.5,
+  "variance": 5.6
+ },
+ "crafter_south": {
+  "rgb": [
+   123.3,
+   112.4,
+   96.8
+  ],
+  "luma": 113.6,
+  "variance": 36.6
+ },
+ "crafter_south_triggered": {
+  "rgb": [
+   126.1,
+   112.6,
+   96.9
+  ],
+  "luma": 114.3,
+  "variance": 36.0
+ },
+ "mossy_cobblestone": {
+  "rgb": [
+   110.1,
+   118.5,
+   94.9
+  ],
+  "luma": 115.0,
+  "variance": 27.7
+ },
+ "cut_red_sandstone": {
+  "rgb": [
+   189.3,
+   101.8,
+   31.8
+  ],
+  "luma": 115.3,
+  "variance": 12.3
+ },
+ "crafter_east": {
+  "rgb": [
+   127.2,
+   114.3,
+   93.4
+  ],
+  "luma": 115.5,
+  "variance": 41.1
+ },
+ "polished_granite": {
+  "rgb": [
+   154.1,
+   106.8,
+   89.2
+  ],
+  "luma": 115.6,
+  "variance": 21.7
+ },
+ "crafter_east_triggered": {
+  "rgb": [
+   128.6,
+   114.4,
+   93.5
+  ],
+  "luma": 115.9,
+  "variance": 40.8
+ },
+ "crafter_east_crafting": {
+  "rgb": [
+   128.7,
+   114.5,
+   93.4
+  ],
+  "luma": 116.0,
+  "variance": 40.6
+ },
+ "chiseled_copper": {
+  "rgb": [
+   184.0,
+   100.8,
+   73.8
+  ],
+  "luma": 116.5,
+  "variance": 21.3
+ },
+ "red_sand": {
+  "rgb": [
+   190.7,
+   103.0,
+   33.2
+  ],
+  "luma": 116.6,
+  "variance": 7.4
+ },
+ "oxidized_copper_bulb_powered": {
+  "rgb": [
+   72.0,
+   130.9,
+   108.1
+  ],
+  "luma": 116.7,
+  "variance": 33.1
+ },
+ "crafter_west": {
+  "rgb": [
+   128.7,
+   115.4,
+   94.6
+  ],
+  "luma": 116.7,
+  "variance": 42.1
+ },
+ "weathered_copper_bulb_powered": {
+  "rgb": [
+   94.0,
+   125.3,
+   98.3
+  ],
+  "luma": 116.7,
+  "variance": 28.7
+ },
+ "crafter_west_triggered": {
+  "rgb": [
+   130.1,
+   115.5,
+   94.7
+  ],
+  "luma": 117.1,
+  "variance": 41.8
+ },
+ "dried_ghast_hydration_0_tentacles": {
+  "rgb": [
+   119.1,
+   116.5,
+   116.5
+  ],
+  "luma": 117.1,
+  "variance": 12.7
+ },
+ "crafter_west_crafting": {
+  "rgb": [
+   130.3,
+   115.6,
+   94.6
+  ],
+  "luma": 117.2,
+  "variance": 41.6
+ },
+ "orange_concrete": {
+  "rgb": [
+   224.3,
+   97.1,
+   0.6
+  ],
+  "luma": 117.2,
+  "variance": 0.9
+ },
+ "weathered_copper_bulb": {
+  "rgb": [
+   92.4,
+   126.7,
+   99.5
+  ],
+  "luma": 117.4,
+  "variance": 26.6
+ },
+ "oxidized_copper_bulb": {
+  "rgb": [
+   70.2,
+   132.4,
+   109.3
+  ],
+  "luma": 117.5,
+  "variance": 30.4
+ },
+ "brown_mushroom_block": {
+  "rgb": [
+   149.3,
+   111.8,
+   81.5
+  ],
+  "luma": 117.6,
+  "variance": 2.7
+ },
+ "cracked_stone_bricks": {
+  "rgb": [
+   118.3,
+   117.7,
+   118.3
+  ],
+  "luma": 117.8,
+  "variance": 18.9
+ },
+ "oak_shelf": {
+  "rgb": [
+   144.7,
+   115.3,
+   67.1
+  ],
+  "luma": 118.0,
+  "variance": 27.2
+ },
+ "dead_brain_coral_block": {
+  "rgb": [
+   124.3,
+   117.5,
+   114.2
+  ],
+  "luma": 118.7,
+  "variance": 21.3
+ },
+ "mossy_stone_bricks": {
+  "rgb": [
+   115.4,
+   121.1,
+   105.1
+  ],
+  "luma": 118.8,
+  "variance": 22.4
+ },
+ "resin_block": {
+  "rgb": [
+   217.2,
+   99.2,
+   25.4
+  ],
+  "luma": 119.0,
+  "variance": 22.4
+ },
+ "chiseled_stone_bricks": {
+  "rgb": [
+   119.8,
+   118.9,
+   119.8
+  ],
+  "luma": 119.2,
+  "variance": 22.6
+ },
+ "test_block_fail": {
+  "rgb": [
+   125.0,
+   112.7,
+   171.0
+  ],
+  "luma": 119.5,
+  "variance": 51.2
+ },
+ "light_blue_concrete": {
+  "rgb": [
+   35.6,
+   137.0,
+   198.9
+  ],
+  "luma": 119.9,
+  "variance": 0.9
+ },
+ "suspicious_gravel_3": {
+  "rgb": [
+   124.2,
+   119.1,
+   118.3
+  ],
+  "luma": 120.1,
+  "variance": 24.8
+ },
+ "debug2": {
+  "rgb": [
+   123.9,
+   119.8,
+   117.7
+  ],
+  "luma": 120.5,
+  "variance": 118.9
+ },
+ "brain_coral_block": {
+  "rgb": [
+   207.5,
+   91.1,
+   159.4
+  ],
+  "luma": 120.8,
+  "variance": 21.9
+ },
+ "warped_shelf": {
+  "rgb": [
+   51.2,
+   140.6,
+   133.6
+  ],
+  "luma": 121.1,
+  "variance": 15.5
+ },
+ "black_bed_head_up": {
+  "rgb": [
+   120.2,
+   121.9,
+   124.2
+  ],
+  "luma": 121.7,
+  "variance": 99.2
+ },
+ "test_instance_block": {
+  "rgb": [
+   127.1,
+   120.6,
+   119.4
+  ],
+  "luma": 121.9,
+  "variance": 62.7
+ },
+ "suspicious_gravel_2": {
+  "rgb": [
+   126.0,
+   121.0,
+   120.1
+  ],
+  "luma": 122.0,
+  "variance": 22.3
+ },
+ "stone_bricks": {
+  "rgb": [
+   122.5,
+   121.8,
+   122.5
+  ],
+  "luma": 122.0,
+  "variance": 18.9
+ },
+ "jungle_planks": {
+  "rgb": [
+   160.4,
+   115.2,
+   80.8
+  ],
+  "luma": 122.3,
+  "variance": 23.6
+ },
+ "cut_copper": {
+  "rgb": [
+   191.2,
+   106.9,
+   80.6
+  ],
+  "luma": 122.9,
+  "variance": 20.8
+ },
+ "copper_block": {
+  "rgb": [
+   192.4,
+   107.7,
+   79.8
+  ],
+  "luma": 123.7,
+  "variance": 18.8
+ },
+ "light_gray_shulker_box": {
+  "rgb": [
+   124.4,
+   124.4,
+   115.4
+  ],
+  "luma": 123.8,
+  "variance": 17.6
+ },
+ "light_gray_concrete": {
+  "rgb": [
+   125.0,
+   125.0,
+   115.0
+  ],
+  "luma": 124.3,
+  "variance": 0.7
+ },
+ "dead_tube_coral_block": {
+  "rgb": [
+   130.5,
+   123.2,
+   119.7
+  ],
+  "luma": 124.5,
+  "variance": 20.7
+ },
+ "bamboo_stalk": {
+  "rgb": [
+   93.6,
+   144.5,
+   19.5
+  ],
+  "luma": 124.6,
+  "variance": 25.9
+ },
+ "suspicious_gravel_1": {
+  "rgb": [
+   128.5,
+   123.8,
+   123.0
+  ],
+  "luma": 124.8,
+  "variance": 21.3
+ },
+ "dead_bubble_coral_block": {
+  "rgb": [
+   131.8,
+   123.5,
+   119.4
+  ],
+  "luma": 125.0,
+  "variance": 18.7
+ },
+ "dead_fire_coral_block": {
+  "rgb": [
+   131.6,
+   123.7,
+   119.7
+  ],
+  "luma": 125.1,
+  "variance": 18.7
+ },
+ "jungle_shelf": {
+  "rgb": [
+   155.6,
+   121.7,
+   73.8
+  ],
+  "luma": 125.4,
+  "variance": 17.4
+ },
+ "exposed_chiseled_copper": {
+  "rgb": [
+   154.6,
+   119.4,
+   100.8
+  ],
+  "luma": 125.5,
+  "variance": 19.4
+ },
+ "stone": {
+  "rgb": [
+   125.5,
+   125.5,
+   125.5
+  ],
+  "luma": 125.5,
+  "variance": 10.8
+ },
+ "suspicious_gravel_0": {
+  "rgb": [
+   129.8,
+   125.1,
+   124.1
+  ],
+  "luma": 126.0,
+  "variance": 19.7
+ },
+ "cyan_bed_foot_up": {
+  "rgb": [
+   18.5,
+   155.2,
+   154.2
+  ],
+  "luma": 126.1,
+  "variance": 7.2
+ },
+ "lectern_base": {
+  "rgb": [
+   162.6,
+   121.0,
+   74.3
+  ],
+  "luma": 126.4,
+  "variance": 29.2
+ },
+ "orange_shulker_box": {
+  "rgb": [
+   234.1,
+   106.4,
+   8.7
+  ],
+  "luma": 126.5,
+  "variance": 10.5
+ },
+ "exposed_cut_copper": {
+  "rgb": [
+   154.7,
+   121.8,
+   101.3
+  ],
+  "luma": 127.3,
+  "variance": 19.3
+ },
+ "cobblestone": {
+  "rgb": [
+   127.8,
+   127.3,
+   127.6
+  ],
+  "luma": 127.4,
+  "variance": 29.4
+ },
+ "dead_horn_coral_block": {
+  "rgb": [
+   133.6,
+   126.2,
+   122.3
+  ],
+  "luma": 127.5,
+  "variance": 23.1
+ },
+ "pink_concrete": {
+  "rgb": [
+   213.5,
+   101.0,
+   142.9
+  ],
+  "luma": 127.9,
+  "variance": 0.9
+ },
+ "gravel": {
+  "rgb": [
+   131.9,
+   127.5,
+   126.5
+  ],
+  "luma": 128.3,
+  "variance": 17.0
+ },
+ "magenta_glazed_terracotta": {
+  "rgb": [
+   208.3,
+   100.4,
+   191.9
+  ],
+  "luma": 130.0,
+  "variance": 28.8
+ },
+ "stripped_warped_stem": {
+  "rgb": [
+   57.6,
+   150.9,
+   147.8
+  ],
+  "luma": 130.9,
+  "variance": 9.4
+ },
+ "green_glazed_terracotta": {
+  "rgb": [
+   117.0,
+   142.3,
+   67.4
+  ],
+  "luma": 131.5,
+  "variance": 49.7
+ },
+ "exposed_copper": {
+  "rgb": [
+   161.1,
+   125.7,
+   103.9
+  ],
+  "luma": 131.7,
+  "variance": 17.0
+ },
+ "bed_down": {
+  "rgb": [
+   162.2,
+   130.8,
+   78.6
+  ],
+  "luma": 133.7,
+  "variance": 23.6
+ },
+ "oak_planks": {
+  "rgb": [
+   162.2,
+   130.8,
+   78.6
+  ],
+  "luma": 133.7,
+  "variance": 23.6
+ },
+ "polished_andesite": {
+  "rgb": [
+   132.3,
+   134.8,
+   134.0
+  ],
+  "luma": 134.2,
+  "variance": 20.9
+ },
+ "bamboo_block": {
+  "rgb": [
+   127.2,
+   144.0,
+   57.5
+  ],
+  "luma": 134.2,
+  "variance": 19.3
+ },
+ "weathered_cut_copper": {
+  "rgb": [
+   109.4,
+   145.4,
+   107.5
+  ],
+  "luma": 135.0,
+  "variance": 21.4
+ },
+ "oxidized_cut_copper": {
+  "rgb": [
+   79.7,
+   153.6,
+   126.4
+  ],
+  "luma": 135.9,
+  "variance": 22.4
+ },
+ "andesite": {
+  "rgb": [
+   136.2,
+   136.3,
+   136.8
+  ],
+  "luma": 136.3,
+  "variance": 15.7
+ },
+ "glowstone": {
+  "rgb": [
+   171.8,
+   131.2,
+   84.3
+  ],
+  "luma": 136.4,
+  "variance": 62.6
+ },
+ "orange_wool": {
+  "rgb": [
+   240.7,
+   118.1,
+   19.5
+  ],
+  "luma": 137.0,
+  "variance": 11.1
+ },
+ "light_blue_bed_foot_up": {
+  "rgb": [
+   41.4,
+   157.9,
+   213.7
+  ],
+  "luma": 137.1,
+  "variance": 6.3
+ },
+ "yellow_terracotta": {
+  "rgb": [
+   186.3,
+   133.1,
+   35.4
+  ],
+  "luma": 137.4,
+  "variance": 2.2
+ },
+ "stripped_jungle_log": {
+  "rgb": [
+   171.5,
+   132.8,
+   84.6
+  ],
+  "luma": 137.6,
+  "variance": 10.2
+ },
+ "purple_bed_head_up": {
+  "rgb": [
+   160.3,
+   126.5,
+   188.9
+  ],
+  "luma": 138.2,
+  "variance": 65.7
+ },
+ "weathered_chiseled_copper": {
+  "rgb": [
+   104.8,
+   151.0,
+   111.1
+  ],
+  "luma": 138.3,
+  "variance": 22.9
+ },
+ "purpur_block": {
+  "rgb": [
+   169.9,
+   125.9,
+   169.7
+  ],
+  "luma": 138.4,
+  "variance": 17.1
+ },
+ "red_bed_head_up": {
+  "rgb": [
+   185.0,
+   128.4,
+   126.8
+  ],
+  "luma": 140.3,
+  "variance": 77.0
+ },
+ "weathered_copper": {
+  "rgb": [
+   108.3,
+   153.0,
+   110.4
+  ],
+  "luma": 140.4,
+  "variance": 18.9
+ },
+ "light_gray_wool": {
+  "rgb": [
+   142.0,
+   142.2,
+   134.6
+  ],
+  "luma": 141.6,
+  "variance": 10.0
+ },
+ "lime_concrete": {
+  "rgb": [
+   94.1,
+   168.8,
+   24.5
+  ],
+  "luma": 142.5,
+  "variance": 0.9
+ },
+ "dried_ghast_hydration_1_tentacles": {
+  "rgb": [
+   145.1,
+   142.1,
+   142.1
+  ],
+  "luma": 142.7,
+  "variance": 11.3
+ },
+ "light_blue_shulker_box": {
+  "rgb": [
+   49.3,
+   163.9,
+   212.1
+  ],
+  "luma": 143.0,
+  "variance": 11.5
+ },
+ "oxidized_chiseled_copper": {
+  "rgb": [
+   83.5,
+   161.9,
+   132.3
+  ],
+  "luma": 143.1,
+  "variance": 22.2
+ },
+ "oxidized_copper": {
+  "rgb": [
+   82.4,
+   162.7,
+   132.9
+  ],
+  "luma": 143.5,
+  "variance": 19.4
+ },
+ "light_gray_bed_foot_up": {
+  "rgb": [
+   144.4,
+   145.6,
+   136.9
+  ],
+  "luma": 144.7,
+  "variance": 10.3
+ },
+ "orange_glazed_terracotta": {
+  "rgb": [
+   154.8,
+   147.5,
+   92.0
+  ],
+  "luma": 145.0,
+  "variance": 75.8
+ },
+ "orange_bed_foot_up": {
+  "rgb": [
+   250.0,
+   126.9,
+   22.2
+  ],
+  "luma": 145.5,
+  "variance": 11.2
+ },
+ "cherry_shelf": {
+  "rgb": [
+   202.5,
+   130.2,
+   129.4
+  ],
+  "luma": 145.5,
+  "variance": 19.4
+ },
+ "debug": {
+  "rgb": [
+   133.4,
+   148.5,
+   152.5
+  ],
+  "luma": 145.6,
+  "variance": 109.3
+ },
+ "oxidized_copper_bulb_lit_powered": {
+  "rgb": [
+   136.3,
+   153.0,
+   102.8
+  ],
+  "luma": 145.8,
+  "variance": 45.4
+ },
+ "lime_shulker_box": {
+  "rgb": [
+   99.8,
+   172.6,
+   23.0
+  ],
+  "luma": 146.3,
+  "variance": 11.7
+ },
+ "oxidized_copper_bulb_lit": {
+  "rgb": [
+   134.5,
+   154.5,
+   104.0
+  ],
+  "luma": 146.6,
+  "variance": 43.8
+ },
+ "dried_ghast_hydration_0_north": {
+  "rgb": [
+   158.1,
+   143.9,
+   143.9
+  ],
+  "luma": 146.9,
+  "variance": 17.6
+ },
+ "stripped_oak_log": {
+  "rgb": [
+   177.5,
+   144.1,
+   86.1
+  ],
+  "luma": 147.0,
+  "variance": 11.9
+ },
+ "pink_shulker_box": {
+  "rgb": [
+   230.4,
+   121.8,
+   157.7
+  ],
+  "luma": 147.5,
+  "variance": 14.8
+ },
+ "dried_ghast_hydration_0_east": {
+  "rgb": [
+   158.6,
+   144.9,
+   144.9
+  ],
+  "luma": 147.8,
+  "variance": 14.1
+ },
+ "blue_bed_head_up": {
+  "rgb": [
+   135.4,
+   147.4,
+   188.5
+  ],
+  "luma": 147.8,
+  "variance": 67.5
+ },
+ "brown_bed_head_up": {
+  "rgb": [
+   165.0,
+   145.4,
+   130.0
+  ],
+  "luma": 148.4,
+  "variance": 76.1
+ },
+ "dried_ghast_hydration_0_south": {
+  "rgb": [
+   159.3,
+   145.6,
+   145.6
+  ],
+  "luma": 148.5,
+  "variance": 15.7
+ },
+ "magenta_bed_head_up": {
+  "rgb": [
+   188.9,
+   133.0,
+   186.2
+  ],
+  "luma": 148.7,
+  "variance": 56.2
+ },
+ "beehive_end": {
+  "rgb": [
+   180.5,
+   146.1,
+   90.3
+  ],
+  "luma": 149.4,
+  "variance": 10.9
+ },
+ "dried_ghast_hydration_0_west": {
+  "rgb": [
+   162.6,
+   147.6,
+   147.6
+  ],
+  "luma": 150.8,
+  "variance": 11.1
+ },
+ "exposed_copper_bulb_lit_powered": {
+  "rgb": [
+   195.3,
+   144.2,
+   99.4
+  ],
+  "luma": 151.8,
+  "variance": 41.3
+ },
+ "weathered_copper_bulb_lit_powered": {
+  "rgb": [
+   157.9,
+   155.8,
+   97.6
+  ],
+  "luma": 152.0,
+  "variance": 41.3
+ },
+ "green_bed_head_up": {
+  "rgb": [
+   144.3,
+   157.7,
+   119.9
+  ],
+  "luma": 152.2,
+  "variance": 81.9
+ },
+ "exposed_copper_bulb_lit": {
+  "rgb": [
+   194.3,
+   145.3,
+   100.2
+  ],
+  "luma": 152.4,
+  "variance": 40.5
+ },
+ "weathered_copper_bulb_lit": {
+  "rgb": [
+   156.3,
+   157.1,
+   98.7
+  ],
+  "luma": 152.7,
+  "variance": 39.8
+ },
+ "light_blue_glazed_terracotta": {
+  "rgb": [
+   94.5,
+   164.6,
+   208.9
+  ],
+  "luma": 152.9,
+  "variance": 59.4
+ },
+ "light_blue_wool": {
+  "rgb": [
+   58.1,
+   175.0,
+   217.3
+  ],
+  "luma": 153.2,
+  "variance": 13.2
+ },
+ "grass_block_snow": {
+  "rgb": [
+   169.9,
+   151.1,
+   133.0
+  ],
+  "luma": 153.8,
+  "variance": 71.4
+ },
+ "prismarine_bricks": {
+  "rgb": [
+   99.2,
+   171.6,
+   158.4
+  ],
+  "luma": 155.3,
+  "variance": 23.6
+ },
+ "gray_bed_head_up": {
+  "rgb": [
+   148.8,
+   157.1,
+   158.1
+  ],
+  "luma": 155.4,
+  "variance": 68.0
+ },
+ "birch_shelf": {
+  "rgb": [
+   175.1,
+   155.6,
+   106.1
+  ],
+  "luma": 156.2,
+  "variance": 20.4
+ },
+ "honeycomb_block": {
+  "rgb": [
+   229.3,
+   148.4,
+   29.5
+  ],
+  "luma": 157.0,
+  "variance": 33.1
+ },
+ "pink_bed_foot_up": {
+  "rgb": [
+   241.3,
+   131.6,
+   166.6
+  ],
+  "luma": 157.5,
+  "variance": 10.9
+ },
+ "repeater": {
+  "rgb": [
+   160.2,
+   157.1,
+   156.1
+  ],
+  "luma": 157.7,
+  "variance": 43.6
+ },
+ "lime_wool": {
+  "rgb": [
+   112.2,
+   185.2,
+   25.8
+  ],
+  "luma": 158.2,
+  "variance": 8.2
+ },
+ "jack_o_lantern": {
+  "rgb": [
+   214.6,
+   152.4,
+   52.9
+  ],
+  "luma": 158.5,
+  "variance": 45.5
+ },
+ "smooth_stone": {
+  "rgb": [
+   158.7,
+   158.7,
+   158.7
+  ],
+  "luma": 158.7,
+  "variance": 18.0
+ },
+ "cyan_bed_head_up": {
+  "rgb": [
+   116.1,
+   171.4,
+   171.0
+  ],
+  "luma": 159.6,
+  "variance": 72.1
+ },
+ "stripped_cherry_log": {
+  "rgb": [
+   215.1,
+   145.2,
+   148.9
+  ],
+  "luma": 160.3,
+  "variance": 7.5
+ },
+ "copper_bulb_lit_powered": {
+  "rgb": [
+   216.5,
+   149.8,
+   106.3
+  ],
+  "luma": 160.8,
+  "variance": 49.1
+ },
+ "emerald_block": {
+  "rgb": [
+   42.4,
+   203.4,
+   87.8
+  ],
+  "luma": 160.9,
+  "variance": 35.6
+ },
+ "shroomlight": {
+  "rgb": [
+   240.9,
+   146.5,
+   70.9
+  ],
+  "luma": 161.1,
+  "variance": 41.6
+ },
+ "copper_bulb_lit": {
+  "rgb": [
+   216.0,
+   150.5,
+   106.7
+  ],
+  "luma": 161.3,
+  "variance": 48.7
+ },
+ "light_gray_glazed_terracotta": {
+  "rgb": [
+   144.3,
+   166.1,
+   168.0
+  ],
+  "luma": 161.6,
+  "variance": 46.8
+ },
+ "bamboo_shelf": {
+  "rgb": [
+   182.4,
+   164.3,
+   75.9
+  ],
+  "luma": 161.8,
+  "variance": 19.8
+ },
+ "test_block_start": {
+  "rgb": [
+   190.6,
+   158.2,
+   120.3
+  ],
+  "luma": 162.4,
+  "variance": 56.6
+ },
+ "comparator": {
+  "rgb": [
+   166.3,
+   161.9,
+   159.5
+  ],
+  "luma": 162.7,
+  "variance": 45.9
+ },
+ "blue_ice": {
+  "rgb": [
+   116.1,
+   167.6,
+   253.0
+  ],
+  "luma": 162.9,
+  "variance": 8.3
+ },
+ "pink_wool": {
+  "rgb": [
+   237.9,
+   141.4,
+   172.4
+  ],
+  "luma": 164.1,
+  "variance": 15.8
+ },
+ "sulfur_bricks": {
+  "rgb": [
+   186.6,
+   167.6,
+   91.2
+  ],
+  "luma": 166.1,
+  "variance": 20.7
+ },
+ "clay": {
+  "rgb": [
+   160.7,
+   166.5,
+   179.4
+  ],
+  "luma": 166.2,
+  "variance": 7.6
+ },
+ "lime_bed_foot_up": {
+  "rgb": [
+   120.9,
+   194.5,
+   26.9
+  ],
+  "luma": 166.7,
+  "variance": 8.5
+ },
+ "chiseled_sulfur": {
+  "rgb": [
+   187.1,
+   169.6,
+   91.4
+  ],
+  "luma": 167.7,
+  "variance": 21.7
+ },
+ "bamboo_mosaic": {
+  "rgb": [
+   190.2,
+   170.2,
+   78.1
+  ],
+  "luma": 167.8,
+  "variance": 21.4
+ },
+ "polished_sulfur": {
+  "rgb": [
+   188.0,
+   170.3,
+   91.3
+  ],
+  "luma": 168.3,
+  "variance": 18.2
+ },
+ "dried_ghast_hydration_1_south": {
+  "rgb": [
+   177.1,
+   166.6,
+   166.6
+  ],
+  "luma": 168.8,
+  "variance": 14.5
+ },
+ "dried_ghast_hydration_2_tentacles": {
+  "rgb": [
+   171.4,
+   168.8,
+   168.8
+  ],
+  "luma": 169.3,
+  "variance": 10.0
+ },
+ "light_gray_bed_head_up": {
+  "rgb": [
+   168.0,
+   170.5,
+   166.0
+  ],
+  "luma": 169.6,
+  "variance": 56.9
+ },
+ "light_blue_bed_head_up": {
+  "rgb": [
+   125.1,
+   179.4,
+   209.0
+  ],
+  "luma": 170.0,
+  "variance": 55.2
+ },
+ "dried_ghast_hydration_1_north": {
+  "rgb": [
+   178.8,
+   167.7,
+   167.7
+  ],
+  "luma": 170.1,
+  "variance": 16.2
+ },
+ "orange_bed_head_up": {
+  "rgb": [
+   219.5,
+   161.3,
+   114.4
+  ],
+  "luma": 170.3,
+  "variance": 66.1
+ },
+ "dried_ghast_hydration_1_east": {
+  "rgb": [
+   179.0,
+   168.1,
+   168.1
+  ],
+  "luma": 170.4,
+  "variance": 12.8
+ },
+ "bamboo_planks": {
+  "rgb": [
+   193.4,
+   173.1,
+   80.5
+  ],
+  "luma": 170.7,
+  "variance": 22.8
+ },
+ "stripped_bamboo_block": {
+  "rgb": [
+   193.4,
+   173.1,
+   80.5
+  ],
+  "luma": 170.7,
+  "variance": 22.8
+ },
+ "wet_sponge": {
+  "rgb": [
+   171.1,
+   181.2,
+   70.4
+  ],
+  "luma": 171.1,
+  "variance": 17.4
+ },
+ "test_block_log": {
+  "rgb": [
+   143.1,
+   175.8,
+   213.5
+  ],
+  "luma": 171.5,
+  "variance": 55.3
+ },
+ "pink_bed_head_up": {
+  "rgb": [
+   212.4,
+   159.7,
+   179.2
+  ],
+  "luma": 172.3,
+  "variance": 48.5
+ },
+ "sulfur": {
+  "rgb": [
+   189.6,
+   175.4,
+   101.9
+  ],
+  "luma": 173.1,
+  "variance": 11.8
+ },
+ "dried_ghast_hydration_1_west": {
+  "rgb": [
+   182.5,
+   170.7,
+   170.7
+  ],
+  "luma": 173.2,
+  "variance": 10.0
+ },
+ "mushroom_block_inside": {
+  "rgb": [
+   201.6,
+   170.2,
+   120.2
+  ],
+  "luma": 173.2,
+  "variance": 8.0
+ },
+ "test_block_accept": {
+  "rgb": [
+   131.8,
+   191.3,
+   117.4
+  ],
+  "luma": 173.3,
+  "variance": 48.5
+ },
+ "pink_glazed_terracotta": {
+  "rgb": [
+   235.2,
+   155.0,
+   181.6
+  ],
+  "luma": 173.9,
+  "variance": 22.5
+ },
+ "birch_planks": {
+  "rgb": [
+   192.5,
+   175.3,
+   121.2
+  ],
+  "luma": 175.0,
+  "variance": 18.5
+ },
+ "stripped_birch_log": {
+  "rgb": [
+   197.0,
+   176.0,
+   118.4
+  ],
+  "luma": 176.3,
+  "variance": 10.4
+ },
+ "packed_ice": {
+  "rgb": [
+   141.6,
+   180.0,
+   250.5
+  ],
+  "luma": 176.9,
+  "variance": 10.2
+ },
+ "yellow_concrete": {
+  "rgb": [
+   241.0,
+   175.4,
+   21.4
+  ],
+  "luma": 178.2,
+  "variance": 1.0
+ },
+ "lime_glazed_terracotta": {
+  "rgb": [
+   162.9,
+   197.7,
+   55.2
+  ],
+  "luma": 180.0,
+  "variance": 46.7
+ },
+ "lime_bed_head_up": {
+  "rgb": [
+   157.6,
+   195.4,
+   121.3
+  ],
+  "luma": 182.0,
+  "variance": 66.9
+ },
+ "bamboo_fence_gate_particle": {
+  "rgb": [
+   207.0,
+   185.6,
+   84.6
+  ],
+  "luma": 182.9,
+  "variance": 11.2
+ },
+ "bamboo_fence_particle": {
+  "rgb": [
+   207.0,
+   185.6,
+   84.6
+  ],
+  "luma": 182.9,
+  "variance": 11.2
+ },
+ "white_terracotta": {
+  "rgb": [
+   209.6,
+   178.0,
+   161.3
+  ],
+  "luma": 183.5,
+  "variance": 1.9
+ },
+ "sponge": {
+  "rgb": [
+   195.9,
+   192.1,
+   74.6
+  ],
+  "luma": 184.4,
+  "variance": 16.1
+ },
+ "cherry_planks": {
+  "rgb": [
+   226.5,
+   178.7,
+   172.7
+  ],
+  "luma": 188.5,
+  "variance": 16.5
+ },
+ "diorite": {
+  "rgb": [
+   188.7,
+   188.5,
+   189.0
+  ],
+  "luma": 188.5,
+  "variance": 34.7
+ },
+ "yellow_shulker_box": {
+  "rgb": [
+   248.0,
+   189.0,
+   29.4
+  ],
+  "luma": 190.0,
+  "variance": 7.5
+ },
+ "dried_ghast_hydration_2_south": {
+  "rgb": [
+   197.3,
+   190.2,
+   190.2
+  ],
+  "luma": 191.7,
+  "variance": 14.0
+ },
+ "dried_ghast_hydration_2_north": {
+  "rgb": [
+   198.7,
+   191.4,
+   191.4
+  ],
+  "luma": 192.9,
+  "variance": 18.4
+ },
+ "polished_diorite": {
+  "rgb": [
+   193.0,
+   193.1,
+   194.6
+  ],
+  "luma": 193.2,
+  "variance": 33.9
+ },
+ "suspicious_sand_3": {
+  "rgb": [
+   210.6,
+   193.0,
+   145.3
+  ],
+  "luma": 193.3,
+  "variance": 20.5
+ },
+ "horn_coral_block": {
+  "rgb": [
+   216.0,
+   199.9,
+   66.0
+  ],
+  "luma": 193.7,
+  "variance": 17.6
+ },
+ "yellow_glazed_terracotta": {
+  "rgb": [
+   234.3,
+   192.3,
+   88.7
+  ],
+  "luma": 193.8,
+  "variance": 46.5
+ },
+ "dried_ghast_hydration_2_east": {
+  "rgb": [
+   199.4,
+   192.3,
+   192.3
+  ],
+  "luma": 193.8,
+  "variance": 11.6
+ },
+ "dried_ghast_hydration_2_west": {
+  "rgb": [
+   202.4,
+   194.8,
+   194.8
+  ],
+  "luma": 196.4,
+  "variance": 9.1
+ },
+ "mushroom_stem": {
+  "rgb": [
+   203.2,
+   196.6,
+   185.6
+  ],
+  "luma": 197.2,
+  "variance": 7.0
+ },
+ "yellow_wool": {
+  "rgb": [
+   248.8,
+   198.0,
+   39.6
+  ],
+  "luma": 197.3,
+  "variance": 9.3
+ },
+ "beacon": {
+  "rgb": [
+   117.8,
+   220.9,
+   215.1
+  ],
+  "luma": 198.6,
+  "variance": 43.4
+ },
+ "suspicious_sand_2": {
+  "rgb": [
+   214.1,
+   198.8,
+   151.3
+  ],
+  "luma": 198.6,
+  "variance": 18.1
+ },
+ "yellow_bed_head_up": {
+  "rgb": [
+   228.0,
+   199.4,
+   121.7
+  ],
+  "luma": 199.8,
+  "variance": 52.2
+ },
+ "yellow_bed_foot_up": {
+  "rgb": [
+   254.1,
+   202.3,
+   37.4
+  ],
+  "luma": 201.4,
+  "variance": 8.3
+ },
+ "suspicious_sand_1": {
+  "rgb": [
+   216.6,
+   202.7,
+   156.5
+  ],
+  "luma": 202.3,
+  "variance": 15.9
+ },
+ "chiseled_sandstone": {
+  "rgb": [
+   216.2,
+   203.0,
+   155.4
+  ],
+  "luma": 202.4,
+  "variance": 19.5
+ },
+ "sandstone": {
+  "rgb": [
+   216.4,
+   203.3,
+   155.8
+  ],
+  "luma": 202.6,
+  "variance": 18.2
+ },
+ "suspicious_sand_0": {
+  "rgb": [
+   217.7,
+   204.3,
+   159.2
+  ],
+  "luma": 203.9,
+  "variance": 14.0
+ },
+ "cut_sandstone": {
+  "rgb": [
+   217.8,
+   206.4,
+   159.8
+  ],
+  "luma": 205.5,
+  "variance": 16.2
+ },
+ "gold_block": {
+  "rgb": [
+   246.4,
+   208.3,
+   61.6
+  ],
+  "luma": 205.8,
+  "variance": 23.9
+ },
+ "sand": {
+  "rgb": [
+   219.2,
+   207.2,
+   163.1
+  ],
+  "luma": 206.6,
+  "variance": 9.8
+ },
+ "white_glazed_terracotta": {
+  "rgb": [
+   188.5,
+   212.5,
+   202.9
+  ],
+  "luma": 206.7,
+  "variance": 67.6
+ },
+ "diamond_block": {
+  "rgb": [
+   98.2,
+   237.1,
+   228.1
+  ],
+  "luma": 206.9,
+  "variance": 28.1
+ },
+ "white_concrete": {
+  "rgb": [
+   207.1,
+   213.1,
+   214.1
+  ],
+  "luma": 211.9,
+  "variance": 0.8
+ },
+ "birch_log": {
+  "rgb": [
+   216.6,
+   215.0,
+   210.3
+  ],
+  "luma": 215.0,
+  "variance": 54.4
+ },
+ "end_stone": {
+  "rgb": [
+   219.5,
+   222.9,
+   158.3
+  ],
+  "luma": 217.5,
+  "variance": 16.6
+ },
+ "end_stone_bricks": {
+  "rgb": [
+   218.4,
+   224.0,
+   162.2
+  ],
+  "luma": 218.4,
+  "variance": 21.8
+ },
+ "pale_oak_shelf": {
+  "rgb": [
+   227.6,
+   217.3,
+   216.4
+  ],
+  "luma": 219.4,
+  "variance": 22.2
+ },
+ "white_shulker_box": {
+  "rgb": [
+   215.5,
+   220.5,
+   221.0
+  ],
+  "luma": 219.5,
+  "variance": 15.4
+ },
+ "pale_oak_planks": {
+  "rgb": [
+   227.7,
+   217.5,
+   216.4
+  ],
+  "luma": 219.6,
+  "variance": 23.4
+ },
+ "iron_block": {
+  "rgb": [
+   220.1,
+   220.0,
+   220.0
+  ],
+  "luma": 220.0,
+  "variance": 18.0
+ },
+ "white_bed_head_up": {
+  "rgb": [
+   218.0,
+   221.9,
+   222.0
+  ],
+  "luma": 221.1,
+  "variance": 27.1
+ },
+ "dried_ghast_hydration_3_tentacles": {
+  "rgb": [
+   223.7,
+   221.1,
+   221.1
+  ],
+  "luma": 221.6,
+  "variance": 7.5
+ },
+ "calcite": {
+  "rgb": [
+   223.5,
+   224.5,
+   220.7
+  ],
+  "luma": 224.0,
+  "variance": 19.3
+ },
+ "chiseled_quartz_block": {
+  "rgb": [
+   231.9,
+   226.9,
+   218.0
+  ],
+  "luma": 227.3,
+  "variance": 8.6
+ },
+ "quartz_bricks": {
+  "rgb": [
+   234.7,
+   229.2,
+   221.8
+  ],
+  "luma": 229.8,
+  "variance": 7.9
+ },
+ "white_wool": {
+  "rgb": [
+   233.6,
+   236.3,
+   236.8
+  ],
+  "luma": 235.8,
+  "variance": 12.6
+ },
+ "dried_ghast_hydration_3_north": {
+  "rgb": [
+   238.8,
+   238.5,
+   238.5
+  ],
+  "luma": 238.6,
+  "variance": 21.9
+ },
+ "dried_ghast_hydration_3_south": {
+  "rgb": [
+   239.9,
+   238.8,
+   238.8
+  ],
+  "luma": 239.0,
+  "variance": 11.7
+ },
+ "stripped_pale_oak_log": {
+  "rgb": [
+   245.8,
+   238.2,
+   236.9
+  ],
+  "luma": 239.7,
+  "variance": 8.6
+ },
+ "dried_ghast_hydration_3_east": {
+  "rgb": [
+   241.1,
+   240.7,
+   240.7
+  ],
+  "luma": 240.8,
+  "variance": 9.4
+ },
+ "dried_ghast_hydration_3_west": {
+  "rgb": [
+   243.1,
+   242.9,
+   242.9
+  ],
+  "luma": 242.9,
+  "variance": 7.4
+ },
+ "white_bed_foot_up": {
+  "rgb": [
+   244.3,
+   244.8,
+   244.8
+  ],
+  "luma": 244.7,
+  "variance": 8.0
+ },
+ "powder_snow": {
+  "rgb": [
+   248.1,
+   253.4,
+   253.4
+  ],
+  "luma": 252.2,
+  "variance": 3.7
+ },
+ "snow": {
+  "rgb": [
+   249.0,
+   254.2,
+   254.2
+  ],
+  "luma": 253.1,
+  "variance": 2.6
+ }
+}

@@ -1,0 +1,22 @@
+# Python / Virtual Environment
+.venv/
+.venv311/
+venv/
+__pycache__/
+*.pyc
+
+# Logs & Temporary Progress Files
+*.log
+*.pid
+build_progress.txt
+paint_progress.txt
+paint_progress.meta.json
+
+# Large Generated Data & Assets
+*.png
+*.npy
+*.npz
+cache/
+tiles/
+heightmap_info.txt
+heightmap_meta.json
