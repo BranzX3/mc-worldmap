@@ -42,6 +42,58 @@ def apply_water_mask(landcover, water_mask):
     result[water_mask] = LC["water"]
     return result
 
+
+def shore_probabilities(water, water_depth, shore_width=4, search_blocks=12):
+    """Return separate ``(lake_shore, stream_bank)`` probability fields."""
+    water = np.asarray(water, dtype=bool)
+    water_depth = np.asarray(water_depth)
+    if water.shape != water_depth.shape:
+        raise ValueError("water and water_depth must have the same shape")
+    if shore_width < 1:
+        raise ValueError("shore_width must be at least 1")
+
+    dist = np.full(water.shape, shore_width + 1, dtype=np.int16)
+    dist[water] = 0
+    near = water.copy()
+    for step_i in range(1, shore_width + 1):
+        expanded = near.copy()
+        expanded[1:, :] |= near[:-1, :]
+        expanded[:-1, :] |= near[1:, :]
+        expanded[:, 1:] |= near[:, :-1]
+        expanded[:, :-1] |= near[:, 1:]
+        newly = expanded & ~near
+        dist[newly] = step_i
+        near = expanded
+
+    wmax = water_depth.astype(np.int16, copy=True)
+    for _ in range(max(shore_width, int(search_blocks))):
+        expanded = wmax.copy()
+        expanded[1:, :] = np.maximum(expanded[1:, :], wmax[:-1, :])
+        expanded[:-1, :] = np.maximum(expanded[:-1, :], wmax[1:, :])
+        expanded[:, 1:] = np.maximum(expanded[:, 1:], wmax[:, :-1])
+        expanded[:, :-1] = np.maximum(expanded[:, :-1], wmax[:, 1:])
+        wmax = expanded
+
+    lake_body = np.clip(
+        (wmax.astype(np.float32) - 2.0) / 6.0, 0.0, 1.0
+    )
+    lake_weights = np.asarray([0.92, 0.62, 0.32, 0.12], dtype=np.float32)
+    bank_weights = np.asarray([0.72, 0.48, 0.25, 0.10], dtype=np.float32)
+    lake_falloff = np.zeros(water.shape, dtype=np.float32)
+    bank_falloff = np.zeros(water.shape, dtype=np.float32)
+    for step_i in range(1, shore_width + 1):
+        at_distance = dist == step_i
+        lake_falloff[at_distance] = lake_weights[
+            min(step_i, len(lake_weights)) - 1
+        ]
+        bank_falloff[at_distance] = bank_weights[
+            min(step_i, len(bank_weights)) - 1
+        ]
+
+    lake_shore = lake_falloff * lake_body
+    stream_bank = bank_falloff * (lake_body <= 0.0)
+    return lake_shore, stream_bank
+
 # สี RGB ดึงจาก texture จริงของเกม 26.2 ด้วย block_colors.py (ยกเว้นที่มาร์กว่า tint
 # ซึ่งถูก biome ย้อมสีตอนรันไทม์ texture จริงเป็นเกือบขาวดำ ใช้ค่าประมาณแทน)
 BLOCKS = {
@@ -54,7 +106,9 @@ BLOCKS = {
     "calcite":     ("calcite",            (224,224,221)),   # 224
     "diorite":     ("diorite",            (189,188,189)),   # 189
     "clay":        ("clay",               (161,167,179)),   # 166  อุดช่องว่าง
-    "smooth":      ("smooth_stone",       (159,159,159)),   # 159  อุดช่องว่าง
+    # smooth_stone เลิกใช้: texture เรียบสนิทไม่มีลาย ทำให้โดดออกจากหิน
+    # ธรรมชาติรอบข้างที่มีลายทุกตัว (เก็บค่าสีไว้เป็นเอกสารของ ramp)
+    "smooth":      ("smooth_stone",       (159,159,159)),   # 159  ไม่ใช้แล้ว
     "andesite":    ("andesite",           (136,136,137)),   # 136
     "gravel":      ("gravel",             (132,128,126)),   # 128
     "cobble":      ("cobblestone",        (128,127,128)),   # 127
@@ -67,6 +121,11 @@ BLOCKS = {
     "cob_deep":    ("cobbled_deepslate",  ( 77, 77, 81)),   #  78
     "basalt":      ("smooth_basalt",      ( 73, 72, 78)),   #  73
     # ---- ดิน/พืช ----
+    # โทนน้ำตาลอ่อนอุ่น — ดึงสีจริงจาก texture ในเกม 26.2 เติมช่องว่างระหว่าง
+    # gravel (129) กับ rooted_dirt (113) ซึ่งเดิมไม่มีอะไรอยู่เลย ทำให้พื้นดิน
+    # กระโดดจากเทาไปน้ำตาลเข้มทันที
+    "mushroom":    ("brown_mushroom_block", (149,112, 81)),   # 120
+    "packed_mud":  ("packed_mud",         (142,107, 80)),     # 114
     "rooted":      ("rooted_dirt",        (144,104, 76)),
     "dirt":        ("dirt",               (134, 96, 67)),
     "coarse":      ("coarse_dirt",        (119, 86, 59)),
@@ -81,6 +140,27 @@ BLOCKS = {
 }
 KEYS = list(BLOCKS)
 IDX = {k: i for i, k in enumerate(KEYS)}
+
+# ---- slab สำหรับไล่ระดับครึ่งบล็อก ----------------------------------------
+# วานิลลามี slab เฉพาะหิน — ดิน หญ้า มอส กรวด ทราย ไม่มีเลย การไล่ระดับครึ่ง
+# บล็อกจึงทำได้เฉพาะบนภูมิประเทศหิน ซึ่งบังเอิญเป็นที่ที่ขั้นบันไดเห็นชัดสุด
+# (หน้าผา ลานหิน scree) พอดี
+#
+# deepslate ใช้ cobbled_deepslate_slab เพราะ deepslate ล้วนไม่มี slab และ
+# cobbled เป็นตัวที่หน้าตาเป็นหินธรรมชาติที่สุดในตระกูล
+SLAB_OF = {
+    "stone": "stone_slab",
+    "cobble": "cobblestone_slab",
+    "andesite": "andesite_slab",
+    "diorite": "diorite_slab",
+    "tuff": "tuff_slab",
+    "mossy_cob": "mossy_cobblestone_slab",
+    "deepslate": "cobbled_deepslate_slab",
+    "cob_deep": "cobbled_deepslate_slab",
+}
+HAS_SLAB = np.zeros(len(KEYS), dtype=bool)
+for _k in SLAB_OF:
+    HAS_SLAB[IDX[_k]] = True
 PREVIEW_RGB = np.array([BLOCKS[k][1] for k in KEYS], dtype=np.uint8)
 BLOCK_NAMES = [BLOCKS[k][0] for k in KEYS]
 
@@ -89,14 +169,17 @@ PALETTE = {
     "meadow":    [("grass", .74), ("moss", .18), ("dirt", .05), ("coarse", .03)],
     "montane":   [("grass", .55), ("moss", .30), ("podzol", .10), ("coarse", .05)],
     # พื้นป่าสน — podzol เด่นแต่ไม่ล้วน มีเข็มสนทับถม ดินโผล่ รากไม้ มอสตามที่ชื้น
-    "floor_conifer": [("podzol", .40), ("coarse", .20), ("moss", .16),
-                      ("dirt", .10), ("rooted", .08), ("grass", .06)],
+    "floor_conifer": [("podzol", .34), ("coarse", .17), ("moss", .14),
+                      ("packed_mud", .10), ("dirt", .09), ("mushroom", .07),
+                      ("rooted", .05), ("grass", .04)],
     # พื้นป่าชื้น (ร่องเขา/ด้านเหนือ) — มอสคลุมเป็นหลัก เขียวนุ่ม ไม่ใช่น้ำตาลแห้ง
     "floor_damp": [("moss", .46), ("podzol", .18), ("grass", .16),
                    ("dirt", .10), ("mud", .05), ("rooted", .05)],
     # พื้นป่าผลัดใบที่ต่ำ — สว่างกว่า หญ้าขึ้นได้ ใบไม้ผุเป็นดินร่วน
-    "floor_broad":   [("grass", .34), ("dirt", .22), ("podzol", .18),
-                      ("moss", .14), ("rooted", .07), ("coarse", .05)],
+    # ใบไม้ผุปีที่แล้วให้โทนน้ำตาลอ่อนอุ่น จึงมี mushroom/packed_mud แทรก
+    "floor_broad":   [("grass", .28), ("dirt", .18), ("podzol", .14),
+                      ("moss", .12), ("mushroom", .10), ("packed_mud", .08),
+                      ("rooted", .06), ("coarse", .04)],
     "alpine":    [("grass", .48), ("moss", .24), ("pale_moss", .10), ("gravel", .10), ("coarse", .05), ("stone", .03)],
     # เหนือแนวไม้ที่ไม่ใช่ผา — หินโล่งมีไลเคนเกาะ
     "barren":    [("gravel", .26), ("tuff", .22), ("stone", .16), ("pale_moss", .14), ("andesite", .12), ("coarse", .10)],
@@ -104,14 +187,22 @@ PALETTE = {
     # ผาต่ำใต้ 900 m — อยู่ในร่มป่า ชื้น มอสเกาะ สีเข้ม
     "rock_low":  [("stone", .24), ("mossy_cob", .18), ("cob_deep", .16), ("andesite", .14), ("deepslate", .14), ("tuff", .14)],
     # ผากลาง 900-1450 m
-    "rock_mid":  [("stone", .26), ("andesite", .22), ("cobble", .16), ("tuff", .12), ("smooth", .10), ("gravel", .08), ("dripstone", .06)],
+    "rock_mid":  [("stone", .28), ("andesite", .26), ("cobble", .17),
+                  ("tuff", .13), ("gravel", .09), ("dripstone", .07)],
     # ผาหินปูนสูง — Dachstein เป็นหินปูนสีอ่อน ผุกร่อนแบบ karst
     # ไล่ 224 -> 189 -> 166 -> 159 -> 136 -> 126 ใช้ clay/smooth_stone อุดช่องว่าง
-    "rock_high": [("calcite", .24), ("diorite", .20), ("clay", .08),
-                  ("smooth", .13), ("andesite", .13), ("gravel", .07),
-                  ("stone", .11), ("pale_moss", .04)],
-    "wetland":   [("mud", .58), ("moss", .24), ("dirt", .18)],
-    "farm":      [("rooted", .48), ("grass", .30), ("coarse", .22)],
+    "rock_high": [("calcite", .26), ("diorite", .23), ("clay", .14),
+                  ("andesite", .14), ("stone", .12), ("gravel", .07),
+                  ("pale_moss", .04)],
+    # ตีนผา — เศษหินที่ร่วงลงมาปนกับดินที่ถูกกัดเซาะ โทนน้ำตาลอมเทา
+    # dripstone_block เป็นหินสีน้ำตาลอุ่นตัวเดียวในเกม จึงเป็นแกนของโทนนี้
+    "cliff_foot": [("gravel", .20), ("dripstone", .16), ("packed_mud", .14),
+                   ("coarse", .13), ("tuff", .12), ("cobble", .10),
+                   ("mushroom", .08), ("deepslate", .07)],
+    "wetland":   [("mud", .42), ("moss", .20), ("packed_mud", .18),
+                  ("dirt", .12), ("mushroom", .08)],
+    "farm":      [("rooted", .34), ("grass", .28), ("packed_mud", .20),
+                  ("coarse", .18)],
 }
 
 # ---- ระดับความสูงจริง (เมตร) — เขตพืชพรรณ Nördliche Kalkalpen --------------
@@ -137,8 +228,32 @@ BIOMES = [
 
 
 def load_meta():
+    """ข้อเท็จจริงของ DEM + ค่าที่คำนวณจาก config สด ๆ ทุกครั้ง
+
+    heightmap.png เก็บความสูงแบบ normalize (0..65535 ต่อช่วง elev จริง) จึงไม่
+    ขึ้นกับสเกลแนวตั้ง เปลี่ยน Y_TERRAIN_* ใน config ได้โดยไม่ต้องสร้าง DEM ใหม่
+    แต่ค่าอย่าง meters_per_block_v ที่เคยถูกเขียนค้างไว้ในไฟล์จะกลายเป็นค่าเก่า
+    ทันที จึงคำนวณทับตรงนี้เสมอ เพื่อให้ไฟล์ meta ไม่มีทางโกหกเรื่องสเกล
+    """
+    import config as C
+
     with open(os.path.join(HERE, "heightmap_meta.json"), encoding="utf-8") as f:
-        return json.load(f)
+        meta = json.load(f)
+
+    blocks = C.Y_TERRAIN_MAX - C.Y_TERRAIN_MIN
+    meta["y_min"] = C.Y_TERRAIN_MIN
+    meta["y_max"] = C.Y_TERRAIN_MAX
+    meta["meters_per_block_h"] = float(C.METERS_PER_BLOCK)
+    meta["meters_per_block_v"] = (
+        (meta["elev_max_m"] - meta["elev_min_m"]) / blocks if blocks else 0.0
+    )
+    return meta
+
+
+def vertical_distortion(meta=None):
+    """สัดส่วนความเพี้ยน แนวตั้ง/แนวนอน — 1.0 = สมจริงเป๊ะ"""
+    meta = meta or load_meta()
+    return meta["meters_per_block_v"] / meta["meters_per_block_h"]
 
 
 def _hash01(i, j, seed):
@@ -202,6 +317,41 @@ def white_noise(x0, z0, shape, seed):
     return _hash01(I, J, seed)
 
 
+def _build_uniformiser(samples=512, seed=4242):
+    """ตาราง CDF สำหรับดัดค่าที่ใช้เลือก palette ให้กระจายสม่ำเสมอ
+
+    r ที่ classify() สร้าง (0.28*white + 0.72*smooth) มีการกระจายแบบระฆังคว่ำ
+    std แค่ 0.141 และช่วง 5-95 percentile คือ 0.267-0.733 ผลคือ pick() ซึ่งแบ่ง
+    ช่วง [0,1) ตามน้ำหนักสะสม จะหยิบแต่ตัวกลาง ๆ ของรายการ
+
+    วัดจริงกับ rock_mid: stone ตั้ง 0.26 ได้ 0.044 | dripstone ตั้ง 0.06 ได้ 0.000
+    บล็อกหัวและท้ายของทุก palette จึงแทบไม่เคยปรากฏบนแผนที่
+
+    ตารางสร้างจากตัวอย่างคงที่ตอน import จึงเป็นค่าเดียวกันทุกเครื่องทุกกรอบ
+    """
+    grain = white_noise(0, 0, (samples, samples), seed)
+    clump = smooth_noise(0, 0, (samples, samples), 20.0, seed + 1, 2)
+    reference = np.clip(0.28 * grain + 0.72 * (clump * 0.5 + 0.5), 0.0, 0.999)
+    quantiles = np.linspace(0.0, 1.0, 257, dtype=np.float32)
+    knots = np.quantile(reference.ravel(), quantiles).astype(np.float32)
+    knots = np.maximum.accumulate(knots + np.arange(knots.size) * 1e-7)
+    return knots, quantiles.astype(np.float32)
+
+
+_R_KNOTS, _R_VALUES = _build_uniformiser()
+
+
+def uniformise(values):
+    """ดัดค่า 0..1 ที่กระจายแบบระฆังคว่ำให้สม่ำเสมอ โดยคงลำดับ
+
+    ทำให้น้ำหนักใน PALETTE เป็นสัดส่วนที่ได้จริง ไม่ใช่แค่ตัวเลขที่ประกาศไว้
+    """
+    return np.clip(
+        np.interp(np.asarray(values, dtype=np.float32), _R_KNOTS, _R_VALUES),
+        0.0, 0.999,
+    ).astype(np.float32)
+
+
 def pick(r, choices):
     """เลือกบล็อกจาก palette ถ่วงน้ำหนักด้วยค่า r (0..1)"""
     out = np.zeros(r.shape, dtype=np.uint8)
@@ -213,6 +363,77 @@ def pick(r, choices):
         cum = hi
     out[r >= cum] = IDX[choices[-1][0]]
     return out
+
+
+def propagate_downhill(source, height, steps=10, decay=0.80):
+    """ไล่ค่าจากที่สูงลงที่ต่ำ — ใช้ส่งอิทธิพลของหน้าผาลงไปถึงตีนผา
+
+    แต่ละรอบ เซลล์รับค่าจากเพื่อนบ้านที่ *สูงกว่า* ตัวเอง คูณด้วย decay จึงได้
+    สนามที่แรงตรงใต้ผาและจางลงเมื่อไกลออกไป โดยไม่ต้องทำ flow routing เต็มรูป
+
+    หยุดเองที่พื้นราบ (ไม่มีเพื่อนบ้านสูงกว่า) ซึ่งถูกต้องตามฟิสิกส์ — หินร่วง
+    ไม่ไหลข้ามลานราบ
+    """
+    source = np.asarray(source, dtype=np.float32)
+    height = np.asarray(height, dtype=np.float32)
+    out = source.copy()
+    for _ in range(int(steps)):
+        best = out.copy()
+        for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            shifted = np.roll(np.roll(out, dz, axis=0), dx, axis=1)
+            higher = np.roll(np.roll(height, dz, axis=0), dx, axis=1) > height
+            best = np.maximum(best, np.where(higher, shifted * decay, 0.0))
+        if np.allclose(best, out):
+            break
+        out = best
+    return out
+
+
+# ---- ตีนผา ----------------------------------------------------------------
+# หน้าผาปล่อยหินร่วงลงมาสะสมที่ตีน ผลคือแถบดินปนเศษหินสีน้ำตาลอมเทา ไม่ใช่หิน
+# ล้วนและไม่ใช่หญ้า ถ้าไม่มีแถบนี้ สีจะเด้งจากผาเทาเป็นหญ้าเขียวในไม่กี่บล็อก
+# ซึ่งเป็นรอยต่อที่ตาจับได้ทันทีว่าไม่ธรรมชาติ
+CLIFF_SLOPE_START = 50.0        # องศา — เริ่มนับว่าเป็นผาที่ปล่อยหินร่วง
+CLIFF_SLOPE_FULL = 65.0
+# ค่าที่เหลือ sweep แล้วเทียบกับพื้นที่กองหินที่ micro_relief ถมจริง (2.88%)
+# ชุดนี้ให้ครอบคลุม 2.28% และทับกับกองหินจริง 92% — นิยามเชิงเรขาคณิตกับการ
+# ทับถมเห็นตรงกันเอง ซึ่งเป็นหลักฐานว่าทั้งคู่จับลักษณะเดียวกันของภูมิประเทศ
+CLIFF_FOOT_REACH_BLOCKS = 10.0  # หินไหลลงมาได้ไกลแค่ไหน
+CLIFF_FOOT_DECAY = 0.86         # ความแรงที่เหลือต่อหนึ่งก้าวลง
+CLIFF_FOOT_CATCH_FULL = 30.0    # ชันไม่เกินนี้ หินเกาะได้เต็มที่
+CLIFF_FOOT_CATCH_NONE = 45.0    # ชันเกินนี้ หินไม่เกาะเลย
+CLIFF_FOOT_THRESHOLD = 0.25
+
+
+def cliff_foot_field(elev_m, slope, spacing_m, block_m=4.0):
+    """ความแรงของ "ตีนผา" 0..1 ต่อพิกเซล
+
+    นิยามจากรูปทรงสุดท้ายล้วน (มีผาอยู่เหนือขึ้นไปในระยะที่หินไหลถึง และตัวเอง
+    ลาดพอให้หินเกาะ) จึงไม่ต้องพึ่งไฟล์ mask จาก micro_relief และจับตีนผา
+    ธรรมชาติที่มีอยู่ใน DEM เองด้วย
+
+    ปรับจำนวนก้าวตามความละเอียดของ array ที่ส่งเข้ามา เพื่อให้พรีวิวที่ย่อส่วน
+    ได้ระยะเท่ากับโลกจริง
+    """
+    slope = np.asarray(slope, dtype=np.float32)
+    pixels_per_block = max(1.0, spacing_m / block_m)
+    steps = max(1, int(round(CLIFF_FOOT_REACH_BLOCKS / pixels_per_block)))
+
+    cliff = np.clip(
+        (slope - CLIFF_SLOPE_START) / (CLIFF_SLOPE_FULL - CLIFF_SLOPE_START),
+        0.0, 1.0,
+    )
+    influence = propagate_downhill(
+        cliff, elev_m, steps=steps, decay=CLIFF_FOOT_DECAY
+    )
+    # catch เป็นประตู ไม่ใช่ตัวคูณเชิงเส้น — ถ้าคูณเชิงเส้นทั้งช่วง พื้นลาดปกติ
+    # จะโดนหารครึ่งจนไม่มีทางถึง threshold (รอบแรกได้ครอบคลุมแค่ 0.03%)
+    catch = np.clip(
+        (CLIFF_FOOT_CATCH_NONE - slope)
+        / (CLIFF_FOOT_CATCH_NONE - CLIFF_FOOT_CATCH_FULL),
+        0.0, 1.0,
+    )
+    return influence * catch
 
 
 def terrain_stats(elev_m, spacing_m):
@@ -293,13 +514,15 @@ def snow_units_from_amount(snow_amount, blocked=None, max_units=MAX_SNOW_UNITS,
 
 def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
              terrain_offset=None):
-    """คืน (surface, canopy, leaf, snow_extra)
+    """คืน (surface, forest_p, snow_extra, soil)
 
     surface    uint8 index -> KEYS  บล็อกผิวบนสุด
-    canopy     uint8 ความหนาเรือนยอด (0 = ไม่มีป่า)
-    leaf       uint8 index -> KEYS  ชนิดใบ
+    forest_p   float32 ความหนาแน่นป่า 0..1 (0 = ไม่มีป่า)
     snow_extra uint8  ความหนาหิมะหน่วย 1/8 บล็อก (ปกติ 0..16;
                 สูงสุด 20 เมื่อชดเชยเศษความสูงของ terrain)
+    soil       bool   ผิวสุดท้ายเป็นดินที่ปลูกได้ไหม
+
+    ชนิดไม้/สีใบดูที่ ecology.tree_species()
     """
     shape = elev_m.shape
     slope, north, curv = terrain_stats(elev_m, spacing_m)
@@ -320,7 +543,11 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     # ตัวเลือกบล็อก: ให้ noise หย่อมเล็ก (~20 บล็อก = 80 ม.) เป็นตัวนำ
     # แล้วโรยเม็ดสุ่มบางๆ — ถ้าใช้ white noise ล้วนจะได้ผิวแบบเกลือพริกไทย
     n_clump = nz(20, seed + 3, 2)
-    r = np.clip(0.28 * grain + 0.72 * (n_clump * 0.5 + 0.5), 0.0, 0.999)
+    # ดัดให้กระจายสม่ำเสมอ ไม่งั้นน้ำหนักใน PALETTE ไม่เป็นจริง — บล็อกหัวและ
+    # ท้ายของทุกรายการจะแทบไม่ปรากฏ (ดู _build_uniformiser)
+    r = uniformise(
+        np.clip(0.28 * grain + 0.72 * (n_clump * 0.5 + 0.5), 0.0, 0.999)
+    )
 
     # เส้นโซนขยับตามภูมิประเทศ: ด้านเหนือหนาวกว่า แนวไม้ต่ำลง
     shift = n_big * 120.0 - north * 85.0
@@ -388,6 +615,17 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     m = rock & (elev_m < MONTANE)
     surf[m] = pick(r, PALETTE["rock_low"])[m]
 
+    # ---- ตีนผา -----------------------------------------------------------
+    # ต้องมาหลังกฎหินทั้งหมด เพราะตัวหน้าผาเองต้องเป็นหิน ไม่ใช่ตีนผา
+    # และต้องมาก่อนหิมะ/น้ำ ซึ่งทับได้ทุกอย่าง
+    #
+    # กันเฉพาะหน้าผาจริง (rock) ไม่กัน steep — เซลล์ตีนผามีความชัน median 31
+    # องศา p75 35 องศา ซึ่งคือมุมพักของกองหินจริง (30-38) การหัก steep(>33)
+    # ออกจะตัดกองหินที่เป็นตัวจริงทิ้งไปเกือบครึ่ง (วัดได้ 2.28% -> 1.41%)
+    foot = cliff_foot_field(elev_m, slope, spacing_m, block_m)
+    m = (foot > CLIFF_FOOT_THRESHOLD) & ~rock
+    surf[m] = pick(r, PALETTE["cliff_foot"])[m]
+
     # ---- หิมะ -----------------------------------------------------------------
     # แถบเปลี่ยนผ่านแบบน่าจะเป็น ไม่ใช่เส้นคม
     # หิมะขับด้วยสนามต่อเนื่องตัวเดียว แล้วแปลงเป็นความหนาหน่วย 1/8 บล็อก
@@ -442,17 +680,10 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     # accumulation must stay clear so trunks are not buried or rejected.
     forest_p *= np.clip((8.0 - snow_lv.astype(np.float32)) / 6.0, 0.0, 1.0)
 
-    in_forest = forest_p > 0.02
-    leaf = np.zeros(shape, dtype=np.uint8)
-    leaf[in_forest] = IDX["oak_leaf"]
-    leaf[in_forest & (elev_m > MONTANE)] = IDX["spruce_leaf"]
-    mix = in_forest & (elev_m > MONTANE) & (elev_m < SUBALPINE) & (r > 0.86)
-    leaf[mix] = IDX["birch_leaf"]
-    low = in_forest & (elev_m < MONTANE) & (r > 0.72)
-    leaf[low] = IDX["birch_leaf"]
-    leaf[in_forest & (elev_m < VALLEY + 200) & (r < 0.06)] = IDX["azalea_leaf"]
-
-    return surf, forest_p, leaf, snow_lv, soil
+    # ชนิดใบไม้ไม่ได้ตัดสินที่นี่แล้ว — ย้ายไป ecology.tree_species() ซึ่ง paint
+    # ใช้ตัวเดียวกัน เดิมที่นี่มีกฎของตัวเองทำให้พรีวิวแสดงองค์ประกอบป่าคนละ
+    # แบบกับโลกจริง (surface.py ห้าม import ecology เพราะ ecology import ตัวนี้)
+    return surf, forest_p, snow_lv, soil
 
 
 def biome_of(elev_m):
@@ -465,6 +696,7 @@ def biome_of(elev_m):
 
 
 def to_rgb(surf, forest_p, leaf, snow_lv=None, elev_m=None):
+    # leaf มาจาก ecology.species_leaf_index() — ตัวเรียกต้องคำนวณเอง
     """ผสมสีใบไม้ทับสีพื้นตามความหนาแน่นป่า ทำให้ขอบป่าดูจางลงจริง"""
     rgb = PREVIEW_RGB[surf].astype(np.float32)
     lf = PREVIEW_RGB[leaf].astype(np.float32)

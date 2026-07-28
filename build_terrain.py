@@ -41,14 +41,23 @@ BLOCK_BEDROCK = ("minecraft", "bedrock")  # ชั้นล่างสุด 1 
 
 
 def surface_grid():
-    """คืน array [x, z] ของ y ผิวดิน (int)"""
-    img = np.asarray(Image.open("heightmap.png"))
-    if img.shape[0] != C.GRID:
-        print(f"[เตือน] heightmap {img.shape[0]} ไม่ตรงกับ GRID={C.GRID}")
-    norm = img.astype("float32") / 65535.0
-    y = C.Y_TERRAIN_MIN + norm * (C.Y_TERRAIN_MAX - C.Y_TERRAIN_MIN)
-    # แกนภาพ [row=z, col=x] -> ต้อง transpose ให้เป็น [x, z] แบบ Minecraft
-    return np.rint(y).astype(np.int32).T
+    """คืน array [x, z] ของ y ผิวดิน (int) จาก terrain_y.npy
+
+    ต้องอ่านไฟล์ที่ terrain_shape.py สร้างไว้ ไม่ใช่แปลง heightmap เอง — เดิม
+    ไฟล์นี้กับ paint_surface.py ต่างคนต่าง np.rint() ถ้าสูตรใดสูตรหนึ่งเปลี่ยน
+    (เช่นตอนเพิ่ม dither) ผิวดินที่ paint วางจะไม่ตรงกับหินที่ build ถม โดยไม่มี
+    อะไรฟ้อง
+    """
+    path = os.path.join(HERE, "terrain_y.npy")
+    if not os.path.exists(path):
+        raise SystemExit(
+            "ไม่พบ terrain_y.npy — รัน terrain_shape.py ก่อน"
+        )
+    y = np.load(path)
+    if y.shape[0] != C.GRID:
+        print(f"[เตือน] terrain_y {y.shape[0]} ไม่ตรงกับ GRID={C.GRID}")
+    # แกนไฟล์ [row=z, col=x] -> ต้อง transpose ให้เป็น [x, z] แบบ Minecraft
+    return y.astype(np.int32).T
 
 
 def patch_chunk_bounds(center_x, center_z, size, grid_blocks):
@@ -155,7 +164,7 @@ def main():
                     chunk = Chunk(cx, cz)
 
                 # solid[x, y, z] = True เมื่อ y ต่ำกว่าหรือเท่ากับผิวของคอลัมน์นั้น
-                ceil = min(318, top + CLEAR_HEADROOM)
+                ceil = min(C.Y_BUILD_CEILING, top + CLEAR_HEADROOM)
                 ys = np.arange(y_base, ceil + 1, dtype=np.int32)
                 solid = ys[None, :, None] <= tile[:, None, :]
                 col = np.where(solid, stone, air).astype(np.uint32)

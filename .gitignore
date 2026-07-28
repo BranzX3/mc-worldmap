@@ -11,6 +11,12 @@ __pycache__/
 build_progress.txt
 paint_progress.txt
 paint_progress.meta.json
+paint_progress.vegetation.txt
+paint_progress.vegetation.meta.json
+
+# report_metrics.py output — เก็บไว้เทียบรอบถัดไป ไม่ต้องเข้า git
+baseline_metrics.txt
+baseline_metrics.json
 
 # Large Generated Data & Assets
 *.png
@@ -20,3 +26,6 @@ cache/
 tiles/
 heightmap_info.txt
 heightmap_meta.json
+terrain_y.npy
+terrain_sub.npy
+terrain_terracing_compare.png

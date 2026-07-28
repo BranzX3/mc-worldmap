@@ -201,7 +201,8 @@ def main():
     v_scale = meta["meters_per_block_v"]
     print(
         f"ความลึกสูงสุด {MAX_DEPTH_BLOCKS} บล็อก "
-        f"(ประมาณ {MAX_DEPTH_BLOCKS * v_scale:.0f} m ที่ vertical scale ปัจจุบัน)"
+        f"(ประมาณ {MAX_DEPTH_BLOCKS * v_scale:.0f} m ที่ vertical scale ปัจจุบัน "
+        f"= {v_scale:.2f} m/block, เพี้ยน {S.vertical_distortion(meta):.2f}x)"
     )
 
     lc = np.load(os.path.join(HERE, "landcover.npz"))["landcover"]
