@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 import config as C
+import ecology as E
 import surface as S
 
 Image.MAX_IMAGE_PIXELS = None
@@ -66,10 +67,20 @@ def main():
     terrain_offset = terrain_y - np.rint(terrain_y)
 
     print("คำนวณกฎผิวดิน ...")
-    surf, forest_p, leaf, snow_extra, soil = S.classify(
+    surf, forest_p, snow_extra, soil = S.classify(
         elev, lc, spacing, block_m=C.METERS_PER_BLOCK,
         x0=x0, z0=z0, terrain_offset=terrain_offset,
     )
+
+    # ชนิดใบต้องมาจากกฎเดียวกับที่ paint ใช้ ไม่งั้นพรีวิวจะแสดงป่าคนละแบบ
+    decor = S.decor_fields(
+        elev, spacing, x0=x0, z0=z0, block_m=C.METERS_PER_BLOCK
+    )
+    species = E.canopy_species(
+        elev, spacing, decor["damp"], x0=x0, z0=z0,
+        block_m=C.METERS_PER_BLOCK,
+    )
+    leaf = E.species_leaf_index(species)
 
     rgb = S.to_rgb(surf, forest_p, leaf, snow_extra, elev)
     out = os.path.join(HERE, f"surface_preview{tag}.png")
@@ -85,6 +96,15 @@ def main():
             continue
         print(f"  {S.BLOCK_NAMES[i]:<26} {counts[i]/total:6.2%}")
     print(f"\nมีเรือนยอด {(forest_p > 0.02).mean():.2%} ของพื้นที่")
+
+    print("\nองค์ประกอบชนิดไม้ (เฉพาะที่มีป่า):")
+    canopy = forest_p > 0.02
+    if canopy.any():
+        picked = species[canopy]
+        for i, name in enumerate(E.SPECIES):
+            share = float((picked == i).mean())
+            if share:
+                print(f"  {name:<12} {share:6.2%}")
 
 
 if __name__ == "__main__":

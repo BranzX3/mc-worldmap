@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 
+import config as C
 import paint_surface as P
 import surface as S
 
@@ -51,6 +52,9 @@ class _Painter:
     snow_layers = list(range(260, 268))
     snow_block = 268
     stone = 269
+    air = 0
+    # slab ต่อบล็อกผิว — 0 = ไม่มี slab สำหรับบล็อกนั้น
+    slab_ids = np.where(S.HAS_SLAB, 700 + np.arange(len(S.KEYS)), 0).astype(np.uint32)
 
     @staticmethod
     def is_air(block_id):
@@ -63,6 +67,48 @@ class _Painter:
     @staticmethod
     def is_soft(block_id):
         return block_id == 0
+
+    @staticmethod
+    def is_preserved(block_id):
+        return (
+            block_id == 0
+            or block_id == _Painter.water
+            or block_id == _Painter.snow_block
+            or block_id in _Painter.snow_layers
+            or block_id in (
+                _Painter.ice_edge, _Painter.ice_mid, _Painter.ice_core
+            )
+        )
+
+
+class _NamedPalette:
+    """palette จำลองที่คืนชื่อบล็อกได้ — verify_terrain_level อ่านชื่อจริง"""
+
+    def __init__(self, names):
+        self.names = names
+
+    def __getitem__(self, block_id):
+        name = self.names.get(int(block_id), "air")
+        return type("_B", (), {"base_name": name})()
+
+
+class _VerifyPainter(_Painter):
+    STONE = 500
+    GRASS = 501
+
+    @staticmethod
+    def fill_stone_to(chunk, world_y):
+        """ถมหินตันจนถึง world_y (รวม y นั้นด้วย) — _Blocks เลื่อน index +64"""
+        chunk.blocks.data[:, : world_y + 64 + 1, :] = _VerifyPainter.STONE
+
+    def __init__(self):
+        self.level = type("_L", (), {
+            "block_palette": _NamedPalette({
+                0: "air", _VerifyPainter.STONE: "stone",
+                _VerifyPainter.GRASS: "grass_block",
+            })
+        })()
+        self.SOFT_NAMES = {"air", "short_grass", "fern", "snow"}
 
 
 class PaintSurfaceTests(unittest.TestCase):
@@ -298,6 +344,29 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertTrue(outside_shore.any())
         self.assertTrue(outside_shore[11, 32])
 
+    def test_shallow_stream_has_bank_probability(self):
+        water = np.zeros((24, 24), dtype=bool)
+        water[12, :] = True
+        depth = water.astype(np.uint8)
+
+        lake, bank = S.shore_probabilities(water, depth)
+
+        self.assertFalse(lake.any())
+        self.assertTrue(bank[11, 12] > 0.0)
+        self.assertTrue(bank[10, 12] > 0.0)
+        self.assertFalse(bank[12, 12])
+
+    def test_deep_lake_does_not_also_get_stream_bank(self):
+        water = np.zeros((40, 40), dtype=bool)
+        water[10:30, 10:30] = True
+        depth = np.zeros((40, 40), dtype=np.uint8)
+        depth[10:30, 10:30] = 10
+
+        lake, bank = S.shore_probabilities(water, depth)
+
+        self.assertTrue(lake[9, 20] > 0.0)
+        self.assertFalse(bank[9, 20])
+
     def test_bhash_array_matches_scalar_hash(self):
         xs = np.arange(17)[:, None]
         zs = np.arange(13)[None, :]
@@ -309,15 +378,22 @@ class PaintSurfaceTests(unittest.TestCase):
                 )
 
     def test_water_preflight_reports_vertical_clipping(self):
+        # สร้างการชนขอบจาก config ไม่ใช่จากค่าคงที่ — ที่สเกลใหม่ (4 m/block,
+        # พื้นหุบเขาอยู่ y=0) มีที่ว่างใต้ผิวน้ำ 63 บล็อก ความลึกคงที่ 30 จึงไม่
+        # ชนอะไรอีกแล้ว ต้องคำนวณความลึกที่เกินพื้นที่จริงเสมอ
+        available = C.Y_TERRAIN_MIN - (C.Y_FILL_BOTTOM + 1)
+        overshoot = 7
         heightmap = np.zeros((2, 2), dtype=np.uint16)
         landcover = np.full((2, 2), S.LC["water"], dtype=np.uint8)
-        depth = np.full((2, 2), 30, dtype=np.uint8)
+        depth = np.full((2, 2), available + overshoot, dtype=np.uint16)
 
         result = P.water_depth_preflight(heightmap, landcover, depth, row_batch=1)
 
         self.assertEqual(result["clipped_columns"], 4)
-        self.assertEqual(result["clipped_blocks"], 28)
-        self.assertEqual(result["required_fill_bottom"], -71)
+        self.assertEqual(result["clipped_blocks"], 4 * overshoot)
+        self.assertEqual(
+            result["required_fill_bottom"], C.Y_FILL_BOTTOM - overshoot
+        )
 
     def test_water_preflight_uses_derived_mask(self):
         heightmap = np.full((2, 2), 65535, dtype=np.uint16)
@@ -634,7 +710,7 @@ class PaintSurfaceTests(unittest.TestCase):
         elev = np.full((48, 48), 3000.0, dtype=np.float32)
         landcover = np.full((48, 48), S.LC["rock"], dtype=np.uint8)
 
-        surface, _forest, _leaf, snow, _soil = S.classify(
+        surface, _forest, snow, _soil = S.classify(
             elev, landcover, 4.0
         )
 
@@ -683,6 +759,138 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertEqual(int(chunk.blocks[2, 65, 3]), 0)
         self.assertEqual(buffer.flush(), 1)
         self.assertEqual(int(chunk.blocks[2, 65, 3]), 900)
+
+    def _vegetation_clear_fixture(self, water_column=False):
+        """dense fields ที่ผิวดินอยู่ y=60 ทั้งแปลง — ใช้ทดสอบการล้างพืช"""
+        n = 16
+        shape = (n, n)
+        y = np.full(shape, 60, dtype=np.int32)
+        water = np.zeros(shape, dtype=bool)
+        if water_column:
+            water[:] = True
+        return n, {"y": y, "water": water}
+
+    def test_vegetation_clear_removes_plants_above_surface(self):
+        painter = _Painter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        # ต้นไม้: ลำต้น y 61..70 และใบที่ y 71
+        chunk.blocks[4, 61:71, 4] = 900
+        chunk.blocks[4, 71, 4] = 901
+        # ก้อนหิน decor ที่ใช้บล็อกเดียวกับภูมิประเทศ
+        chunk.blocks[8, 61, 8] = painter.stone
+        # ผิวดินและใต้ผิวต้องไม่ถูกแตะ
+        chunk.blocks[4, 60, 4] = painter.surface_ids[0]
+        chunk.blocks[4, 59, 4] = painter.stone
+
+        cleared = P.clear_vegetation_chunks(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(cleared, 12)
+        self.assertEqual(int(chunk.blocks[4, 61, 4]), 0)
+        self.assertEqual(int(chunk.blocks[4, 71, 4]), 0)
+        self.assertEqual(int(chunk.blocks[8, 61, 8]), 0)
+        self.assertEqual(int(chunk.blocks[4, 60, 4]), painter.surface_ids[0])
+        self.assertEqual(int(chunk.blocks[4, 59, 4]), painter.stone)
+
+    def test_vegetation_clear_keeps_snow_above_surface(self):
+        painter = _Painter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        chunk.blocks[2, 61, 2] = painter.snow_block
+        chunk.blocks[2, 62, 2] = painter.snow_layers[3]
+        chunk.blocks[3, 61, 3] = 900          # พืช ต้องหาย
+
+        cleared = P.clear_vegetation_chunks(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(cleared, 1)
+        self.assertEqual(int(chunk.blocks[2, 61, 2]), painter.snow_block)
+        self.assertEqual(int(chunk.blocks[2, 62, 2]), painter.snow_layers[3])
+        self.assertEqual(int(chunk.blocks[3, 61, 3]), 0)
+
+    def test_vegetation_clear_skips_water_columns(self):
+        painter = _Painter()
+        n, dense = self._vegetation_clear_fixture(water_column=True)
+        chunk = _Chunk()
+        chunk.blocks[5, 61, 5] = 900          # lily pad เก่าเหนือผิวน้ำ
+
+        cleared = P.clear_vegetation_chunks(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(cleared, 0)
+        self.assertEqual(int(chunk.blocks[5, 61, 5]), 900)
+
+    def test_terrain_verification_accepts_a_matching_world(self):
+        painter = _VerifyPainter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        _VerifyPainter.fill_stone_to(chunk, 60)
+
+        check = P.verify_terrain_level(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertGreater(check["checked"], 0)
+        self.assertEqual(check["missing_surface"], 0)
+        self.assertEqual(check["stone_above_surface"], 0)
+        self.assertEqual(check["median_offset"], 0)
+
+    def test_terrain_verification_detects_a_world_built_too_low(self):
+        """เคสจริง: โลกถูก build ตอน Y_TERRAIN_MIN ยังเป็น -60 (ต่ำกว่า 20)"""
+        painter = _VerifyPainter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        _VerifyPainter.fill_stone_to(chunk, 40)
+
+        check = P.verify_terrain_level(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(check["missing_surface"], check["checked"])
+        self.assertEqual(check["median_offset"], -20)
+
+    def test_terrain_verification_detects_a_world_built_too_high(self):
+        painter = _VerifyPainter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        _VerifyPainter.fill_stone_to(chunk, 90)
+
+        check = P.verify_terrain_level(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(check["missing_surface"], 0)
+        self.assertEqual(check["stone_above_surface"], check["checked"])
+        self.assertEqual(check["median_offset"], 30)
+
+    def test_terrain_verification_ignores_water_columns(self):
+        painter = _VerifyPainter()
+        n, dense = self._vegetation_clear_fixture(water_column=True)
+        chunk = _Chunk()
+
+        check = P.verify_terrain_level(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(check["checked"], 0)
+
+    def test_vegetation_clear_reaches_the_tallest_tree(self):
+        painter = _Painter()
+        n, dense = self._vegetation_clear_fixture()
+        chunk = _Chunk()
+        top = 60 + P.VEGETATION_HEADROOM
+        chunk.blocks[1, top, 1] = 901
+
+        cleared = P.clear_vegetation_chunks(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        self.assertEqual(cleared, 1)
+        self.assertEqual(int(chunk.blocks[1, top, 1]), 0)
 
 
 if __name__ == "__main__":

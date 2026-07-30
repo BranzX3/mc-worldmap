@@ -6,11 +6,15 @@
                                                     # tune พื้น/น้ำ ไม่ปลูกพืชและต้นไม้
     python paint_surface.py --patch 4942 5610 2200 --lake-only
                                                     # ทดสอบเฉพาะก้นทะเลสาบ/น้ำ
+    python paint_surface.py --patch 4200 7000 500 --vegetation-only
+                                                    # tune ป่า/ทุ่ง: ล้างพืชเก่าแล้วปลูกใหม่
+                                                    # ไม่แตะผิวดิน/น้ำ/หิมะ จึงเร็วกว่ามาก
     python paint_surface.py --patch ... --skip-entity-repair
                                                     # ไม่สแกน/แก้ entity regions หลังจบ
 
 รีเซ็ตพื้นที่ที่เคยทาแล้ว: รัน build_terrain.py --patch <เดิม> ก่อน
 (มันเขียนหินทับพร้อมเผื่อหัว 64 บล็อก จึงล้างต้นไม้/พืชเก่าไปในตัว)
+ถ้าจะปรับแค่พืช/ต้นไม้ ใช้ --vegetation-only แทน — มันล้างเฉพาะชั้นเหนือผิวดิน
     python paint_surface.py                          # ทั้งแผนที่
     python paint_surface.py --resume                 # รันต่อจากที่ค้าง
 
@@ -31,7 +35,9 @@ from amulet.api.block import Block
 from amulet.api.errors import ChunkDoesNotExist, ChunkLoadError
 from PIL import Image
 
+import biomes as B
 import config as C
+import ecology as E
 import surface as S
 import vegetation as V
 import tree_schematics as TS
@@ -55,6 +61,9 @@ PAD = max(
     + int(getattr(C, "LAKE_LEVEL_RELAX_PASSES", 4)),
 )  # lake transition radius plus shallow-level relaxation
 TREE_PAD = 4            # fallback เมื่อไม่มี schematic
+# ต้องสูงกว่าต้นไม้ที่สูงสุดในแพ็ก เท่ากับ CLEAR_HEADROOM ของ build_terrain.py
+# ไม่งั้น --vegetation-only จะเหลือยอดใบไม้เก่าลอยค้าง
+VEGETATION_HEADROOM = 64
 PAINT_PIPELINE_VERSION = "2026-07-27-supported-lakebed-v7"
 
 LAKEBED_NAMES = (
@@ -149,6 +158,12 @@ class Painter:
         self.ice_core = self.bid("blue_ice")
         self.ice_mid = self.bid("packed_ice")
         self.ice_edge = self.bid("ice")
+        # slab ครึ่งบล็อกของหินแต่ละชนิด — ไล่ระดับได้ละเอียดเป็นสองเท่า
+        self.slab_ids = np.zeros(len(S.KEYS), dtype=np.uint32)
+        for key, slab in S.SLAB_OF.items():
+            self.slab_ids[S.IDX[key]] = level.block_palette.get_add_block(
+                Block("minecraft", slab, {"type": amulet_nbt.StringTag("bottom")})
+            )
         self.sub_soil = [self.bid(n) for n in ("dirt", "dirt", "dirt", "coarse_dirt")]
         self.sub_alpine = [self.bid(n) for n in
                            ("coarse_dirt", "dirt", "gravel", "stone")]
@@ -157,6 +172,17 @@ class Painter:
         self._air_memo = {}
         self._water_memo = {}
         self._soft_memo = {}
+        self._preserve_memo = {}
+        self._biome_ids = {}
+        # บล็อกที่ --vegetation-only ต้องไม่ลบทิ้ง แม้จะอยู่เหนือผิวดิน
+        # หิมะกองอยู่เหนือผิวดินเสมอ และเป็นผลของ terrain pass ไม่ใช่ของพืช
+        # ถ้าล้างไปด้วยจะหายทั้งแผนที่เพราะโหมดนี้ไม่เขียนหิมะกลับ
+        self.PRESERVE_NAMES = {
+            "air", "cave_air", "void_air",
+            "snow", "snow_block", "powder_snow",
+            "water", "ice", "packed_ice", "blue_ice", "frosted_ice",
+            "seagrass", "tall_seagrass", "lily_pad",
+        }
         # พืชคลุมดินที่เราโรยเอง ต้นไม้ต้องทับได้ ไม่งั้นฐานต้นจะถูกข้าม
         # แล้วลำต้นเริ่มสูงขึ้นหนึ่งช่อง เหลือหญ้าค้างอยู่ใต้ต้นที่ลอย
         self.SOFT_NAMES = {
@@ -183,6 +209,18 @@ class Painter:
             except Exception:
                 v = False
             self._soft_memo[bid] = v
+        return v
+
+    def is_preserved(self, bid):
+        """บล็อกนี้ต้องรอดจากการล้างพืชไหม (หิมะ/น้ำ/น้ำแข็ง/พืชน้ำ)"""
+        v = self._preserve_memo.get(bid)
+        if v is None:
+            try:
+                v = self.level.block_palette[bid].base_name in self.PRESERVE_NAMES
+            except Exception:
+                # อ่าน palette ไม่ได้ = ไม่รู้ว่าเป็นอะไร เก็บไว้ปลอดภัยกว่าลบ
+                v = True
+            self._preserve_memo[bid] = v
         return v
 
     def schem_id(self, name, props):
@@ -225,6 +263,14 @@ class Painter:
             except Exception:
                 v = False
             self._water_memo[bid] = v
+        return v
+
+    def biome_id(self, name):
+        """id ของ biome ใน palette ของโลก — cache ไว้ ไม่ต้องถามซ้ำทุก chunk"""
+        v = self._biome_ids.get(name)
+        if v is None:
+            v = self.level.biome_palette.get_add_biome(name)
+            self._biome_ids[name] = v
         return v
 
     def bid(self, name):
@@ -525,8 +571,40 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
     return short, tall, lily
 
 
+def slab_states(sub, cls, water, ice, snow=None, threshold=0.25):
+    """ตัดสินว่าคอลัมน์ไหนควรใช้ slab เพื่อไล่ระดับครึ่งบล็อก
+
+    `sub` คือเศษที่ terrain_shape.py ปัดทิ้ง (ผิวจริง = y + sub) เดิมค่านี้ถูกใช้
+    แค่เกลี่ยหิมะ ทั้งที่มันบอกตรง ๆ ว่าผิวจริงอยู่สูงหรือต่ำกว่าหน้าบล็อกเท่าไร
+
+    คืน state ต่อคอลัมน์
+      -1  ผิวจริงต่ำกว่าครึ่งบล็อก -> บล็อกบนสุดเป็น slab (หน้าบนอยู่ y+0.5)
+       0  ใช้บล็อกเต็มตามเดิม
+      +1  ผิวจริงสูงกว่าครึ่งบล็อก -> วาง slab เพิ่มบน y+1
+
+    ใช้เฉพาะบล็อกหินที่มี slab ในวานิลลา และเฉพาะบนบก — ใต้น้ำ slab จะเปิดช่อง
+    ให้เห็นโพรงและทำให้ระดับก้นที่คำนวณไว้ไม่ตรง
+
+    และต้องเลี่ยงคอลัมน์ที่มีหิมะ: slab กินครึ่งล่างของช่อง บล็อกถัดไปจึงเริ่มที่
+    ขอบบนของช่องถัดไป เกิดช่องว่างครึ่งบล็อกเสมอ ทำให้หิมะลอยเหนือ slab
+    (วัดจากโลกจริง: 23 จาก 23 คอลัมน์ที่มีทั้งสองอย่าง หิมะลอยทุกอัน)
+
+    ไม่เสียอะไร — ที่มีหิมะเรามีกลไกไล่ระดับที่ละเอียดกว่าอยู่แล้ว คือความหนา
+    หิมะทีละ 1/8 บล็อกจาก terrain_offset ซึ่งแก้ปัญหาเดียวกันได้ดีกว่า slab
+    """
+    sub = np.asarray(sub, dtype=np.float32)
+    eligible = S.HAS_SLAB[np.asarray(cls, dtype=np.intp)] & ~water & ~ice
+    if snow is not None:
+        eligible &= np.asarray(snow) == 0
+    state = np.zeros(sub.shape, dtype=np.int8)
+    state[eligible & (sub > threshold)] = 1
+    state[eligible & (sub < -threshold)] = -1
+    return state
+
+
 def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
-                         shore, shore_p, decor, x0, x1, z0, z1, px0, pz0):
+                         shore, shore_p, decor, x0, x1, z0, z1, px0, pz0,
+                         terrain_sub=None):
     """เตรียม array สำหรับผิวดิน ชั้นดิน น้ำ น้ำแข็ง และหิมะ
 
     array ที่คืนมามีพิกัด [x, z] เฉพาะกรอบจริง ไม่รวม padding การแยกขั้นนี้
@@ -653,8 +731,21 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         np.asarray([P.ice_edge, P.ice_mid, P.ice_core], dtype=np.uint32),
     )
 
+    if terrain_sub is None:
+        slab = np.zeros(shape, dtype=np.int8)
+    else:
+        slab = slab_states(
+            terrain_sub[sx, sz], cls_core, water_mask, ice_mask,
+            snow=snow_core,
+        )
+    # ผิวที่ของอื่นต้องยืนอยู่บน — สูงขึ้นหนึ่งเมื่อมี slab วางทับ
+    object_y = y + (slab > 0)
+
     return {
         "y": y,
+        "slab": slab,
+        "slab_id": np.take(P.slab_ids, cls_core),
+        "object_y": object_y,
         "base_y": base_y,
         "level_adjusted": level_adjusted,
         "elev": elev_core,
@@ -729,7 +820,11 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
             if active_water.any():
                 y_lo = fill_bottom
             snow_height = (snow.astype(np.int32) + 7) // 8
-            y_hi = min(318, int((y + snow_height).max()))
+            lift = dense["slab"][ss] > 0
+            y_hi = min(
+                C.Y_BUILD_CEILING,
+                int((y + snow_height + lift).max()) + 1,
+            )
 
             volume = np.asarray(
                 ch.blocks[lx0:lx1, y_lo:y_hi + 1, lz0:lz1]
@@ -739,6 +834,15 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
 
             if not lake_only:
                 volume[gx, top, gz] = dense["surface_id"][ss]
+                # ไล่ระดับครึ่งบล็อกด้วย slab (เฉพาะหิน ดูที่ slab_states)
+                slab = dense["slab"][ss]
+                slab_id = dense["slab_id"][ss]
+                low = slab < 0
+                if low.any():
+                    volume[gx[low], top[low], gz[low]] = slab_id[low]
+                high = (slab > 0) & (top + 1 < volume.shape[1])
+                if high.any():
+                    volume[gx[high], (top + 1)[high], gz[high]] = slab_id[high]
 
             subsoil = dense["subsoil_mask"][ss]
             if not lake_only:
@@ -792,6 +896,8 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
                 if lake_only
                 else np.where(water, 0, snow).astype(np.int16)
             )
+            # slab ที่วางบน y+1 ดันผิวขึ้นหนึ่ง หิมะต้องเริ่มเหนือมัน
+            top = top + lift.astype(top.dtype)
             full_blocks = snow_units // 8
             remainder = snow_units % 8
 
@@ -839,6 +945,177 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
     return snow_written
 
 
+def verify_terrain_level(P, get_chunk, dense, x0, x1, z0, z1, step=17,
+                         probe=48):
+    """เช็คว่าภูมิประเทศในโลกตรงกับ heightmap ปัจจุบันไหม
+
+    --vegetation-only ไม่ได้เขียนผิวดิน มันเชื่อว่า `dense["y"]` คือผิวจริง
+    ถ้าโลกถูก build ไว้ด้วย config รุ่นก่อน (เช่นตอน Y_TERRAIN_MIN ยังเป็น -60)
+    ผิวจริงจะอยู่คนละระดับ แล้วพืชทั้งแปลงจะถูกวางลอยกลางอากาศ
+
+    ตรวจสองทาง:
+      solid_at_y  ผิวที่คาดต้องมีบล็อกอยู่จริง — จับกรณีโลกต่ำกว่า heightmap
+      stone_above 16 บล็อกเหนือผิวต้องไม่ใช่หิน — จับกรณีโลกสูงกว่า
+
+    คืน dict พร้อม offset ที่วัดได้ (median ของผิวจริง - ผิวที่คาด) เพื่อให้
+    ข้อความ error บอกได้ว่าโลกเพี้ยนไปกี่บล็อก
+    """
+    checked = missing = buried = 0
+    offsets = []
+    air_like = ("air", "cave_air", "void_air")
+
+    for qx in range(0, x1 - x0, step):
+        for qz in range(0, z1 - z0, step):
+            if dense["water"][qx, qz]:
+                continue
+            wx, wz = x0 + qx, z0 + qz
+            ch = get_chunk(wx >> 4, wz >> 4)
+            if ch is None:
+                continue
+            lx, lz = wx & 15, wz & 15
+            y = int(dense["y"][qx, qz])
+            checked += 1
+
+            def name_at(wy):
+                if (wy < getattr(C, "Y_FILL_BOTTOM", C.Y_TERRAIN_MIN)
+                        or wy > C.Y_BUILD_CEILING):
+                    return None
+                try:
+                    return P.level.block_palette[
+                        int(ch.blocks[lx, wy, lz])
+                    ].base_name
+                except Exception:
+                    return None
+
+            if name_at(y) in air_like:
+                missing += 1
+            if name_at(y + 16) == "stone":
+                buried += 1
+
+            # ประเมิน offset จากผิวจริง — มองข้ามพืช/หิมะ/ต้นไม้ที่กองอยู่บน
+            # ผิว เพราะขั้นนี้รันก่อนการล้าง ผิวจริงคือบล็อกแข็งตัวบนสุด
+            top = None
+            for wy in range(min(C.Y_BUILD_CEILING, y + probe),
+                            y - probe - 1, -1):
+                nm = name_at(wy)
+                if nm is None or nm in air_like:
+                    continue
+                if nm in P.SOFT_NAMES or "leaves" in nm or nm.endswith("_log"):
+                    continue
+                top = wy
+                break
+            if top is not None:
+                offsets.append(top - y)
+
+    return {
+        "checked": checked,
+        "missing_surface": missing,
+        "stone_above_surface": buried,
+        "median_offset": (
+            int(np.median(offsets)) if offsets else 0
+        ),
+    }
+
+
+def clear_vegetation_chunks(P, get_chunk, dense, x0, x1, z0, z1,
+                            headroom=VEGETATION_HEADROOM):
+    """ล้างทุกอย่างเหนือผิวดินเพื่อปลูกใหม่ โดยไม่แตะ terrain
+
+    ใช้กฎเชิงตำแหน่งไม่ใช่บัญชีชื่อบล็อก: หลัง terrain pass เสร็จ ชั้นที่อยู่
+    *เหนือ* ผิวดินมีได้แค่อากาศ หิมะ และของที่ vegetation pass วางเอง (ต้นไม้
+    พืช ก้อนหิน ท่อนไม้) การล้างตามตำแหน่งจึงครอบ decor ที่ใช้บล็อกเดียวกับ
+    ภูมิประเทศ (stone/cobblestone/gravel) ได้ด้วย ซึ่งบัญชีชื่อทำไม่ได้
+
+    คอลัมน์น้ำถูกข้ามทั้งคอลัมน์ เพราะโหมดนี้ไม่ปลูกพืชน้ำกลับ
+    คืนจำนวนบล็อกที่ล้าง
+    """
+    cleared = 0
+
+    for cx in range(x0 >> 4, ((x1 - 1) >> 4) + 1):
+        wx0, wx1 = max(x0, cx * CHUNK), min(x1, (cx + 1) * CHUNK)
+        dx0, dx1 = wx0 - x0, wx1 - x0
+        lx0, lx1 = wx0 & 15, ((wx1 - 1) & 15) + 1
+
+        for cz in range(z0 >> 4, ((z1 - 1) >> 4) + 1):
+            wz0, wz1 = max(z0, cz * CHUNK), min(z1, (cz + 1) * CHUNK)
+            dz0, dz1 = wz0 - z0, wz1 - z0
+            lz0, lz1 = wz0 & 15, ((wz1 - 1) & 15) + 1
+
+            ch = get_chunk(cx, cz)
+            if ch is None:
+                continue
+
+            ss = np.s_[dx0:dx1, dz0:dz1]
+            y = dense["y"][ss]
+            water = dense["water"][ss]
+            if water.all():
+                continue
+
+            y_lo = int(y.min()) + 1
+            y_hi = min(C.Y_BUILD_CEILING, int(y.max()) + int(headroom))
+            if y_hi < y_lo:
+                continue
+
+            volume = np.asarray(
+                ch.blocks[lx0:lx1, y_lo:y_hi + 1, lz0:lz1]
+            ).copy()
+            ys = np.arange(y_lo, y_hi + 1, dtype=np.int32)[None, :, None]
+            target = (ys > y[:, None, :]) & ~water[:, None, :]
+            if not target.any():
+                continue
+
+            # ตัดสินต่อค่า palette ที่พบจริง ไม่ใช่ต่อบล็อก — หนึ่ง chunk มัก
+            # มีไม่ถึงสิบชนิดในชั้นนี้ จึงถูกกว่าการวน is_preserved() ทีละบล็อก
+            values = np.unique(volume[target])
+            drop = np.asarray(
+                [v for v in values if not P.is_preserved(int(v))],
+                dtype=volume.dtype,
+            )
+            if not drop.size:
+                continue
+            mask = target & np.isin(volume, drop)
+            if not mask.any():
+                continue
+            volume[mask] = P.air
+            cleared += int(mask.sum())
+            ch.blocks[lx0:lx1, y_lo:y_hi + 1, lz0:lz1] = volume
+
+    return cleared
+
+
+def write_chunk_biomes(chunk, biome_idx, bx, bz, biome_ids):
+    """เขียน biome ต่อ cell 4x4x4 ครอบความสูงทั้งโลก
+
+    แก้สองอย่างจากของเดิมที่เขียน `ch.biomes[:, :, :] = bid`:
+
+    1. ช่วง y — slice ที่ไม่ระบุขอบถูก clamp ที่ y 0..255 เพราะ Biomes3D ตั้ง
+       default_section_counts=(0, 16) กับ section สูง 4 บล็อก ภูมิประเทศของเรา
+       สูงถึง y=640 จึงมี 28% ของแผนที่ที่ไม่เคยได้ biome เลย
+    2. ความละเอียด — เดิมใช้ biome ที่พบมากที่สุดค่าเดียวทั้ง chunk ทำให้ขอบ
+       ระหว่างโซนเป็นสี่เหลี่ยม 16x16 ทั้งที่ Minecraft เก็บ biome ละเอียด
+       ระดับ 4 บล็อกอยู่แล้ว
+    """
+    chunk.biomes.convert_to_3d()
+    cells = np.empty((4, 4), dtype=np.uint32)
+    for cx in range(4):
+        for cz in range(4):
+            block = biome_idx[
+                bx + cx * 4:bx + cx * 4 + 4, bz + cz * 4:bz + cz * 4 + 4
+            ]
+            if block.size:
+                vals, counts = np.unique(block, return_counts=True)
+                cells[cx, cz] = biome_ids[int(vals[np.argmax(counts)])]
+            else:
+                cells[cx, cz] = biome_ids[0]
+
+    # หน่วยแกน y ของ Biomes3D คือ cell (4 บล็อก) ต้องระบุขอบเองทุกครั้ง
+    y0 = C.WORLD_Y_MIN // 4
+    y1 = (C.WORLD_Y_MAX + 1) // 4
+    # BoundedPartial3DArray ไม่ broadcast — ต้องส่ง array ที่ shape ตรงเป๊ะ
+    chunk.biomes[:, y0:y1, :] = np.repeat(cells[:, None, :], y1 - y0, axis=1)
+    return (y1 - y0) * 16
+
+
 class SoftBlockBuffer:
     """buffer งานต้นไม้/ของตกแต่งเป็น section 16³ ก่อนเขียนกลับ Amulet"""
 
@@ -882,38 +1159,24 @@ def lake_shore_probability(water, water_depth, shore_width=4):
     สูตรความลึกมี shelf กว้าง ทำให้น้ำใน 4 บล็อกแรกจากฝั่งยังลึกเพียง 1–2
     บล็อก การค้นแค่ shore_width จึงแยกทะเลสาบจาก stream ไม่ได้
     """
-    dist = np.full(water.shape, 99, dtype=np.int16)
-    dist[water] = 0
-    near = water.copy()
-    for step_i in range(1, shore_width + 1):
-        n2 = near.copy()
-        n2[1:, :] |= near[:-1, :]
-        n2[:-1, :] |= near[1:, :]
-        n2[:, 1:] |= near[:, :-1]
-        n2[:, :-1] |= near[:, 1:]
-        newly = n2 & ~near
-        dist[newly] = step_i
-        near = n2
-
-    wmax = water_depth.astype(np.int16).copy()
     search = max(
         shore_width, int(getattr(C, "LAKE_SHORE_SEARCH_BLOCKS", 12))
     )
-    for _ in range(search):
-        m2 = wmax.copy()
-        m2[1:, :] = np.maximum(m2[1:, :], wmax[:-1, :])
-        m2[:-1, :] = np.maximum(m2[:-1, :], wmax[1:, :])
-        m2[:, 1:] = np.maximum(m2[:, 1:], wmax[:, :-1])
-        m2[:, :-1] = np.maximum(m2[:, :-1], wmax[:, 1:])
-        wmax = m2
+    lake, _bank = S.shore_probabilities(
+        water, water_depth, shore_width=shore_width, search_blocks=search
+    )
+    return lake
 
-    body = np.clip((wmax.astype(np.float32) - 2.0) / 6.0, 0.0, 1.0)
-    weights = np.asarray([0.92, 0.62, 0.32, 0.12], dtype=np.float32)
-    falloff = np.zeros(water.shape, dtype=np.float32)
-    for step_i in range(1, shore_width + 1):
-        weight = weights[min(step_i, len(weights)) - 1]
-        falloff[dist == step_i] = weight
-    return falloff * body
+
+def bank_probability(water, water_depth, shore_width=4):
+    """Return treatment probability for banks of shallow streams."""
+    search = max(
+        shore_width, int(getattr(C, "LAKE_SHORE_SEARCH_BLOCKS", 12))
+    )
+    _lake, bank = S.shore_probabilities(
+        water, water_depth, shore_width=shore_width, search_blocks=search
+    )
+    return bank
 
 
 def water_depth_preflight(heightmap, landcover, water_depth, row_batch=512,
@@ -927,7 +1190,7 @@ def water_depth_preflight(heightmap, landcover, water_depth, row_batch=512,
             raise ValueError("water_mask and heightmap must have the same shape")
     columns = clipped_columns = clipped_blocks = 0
     max_requested = max_available = 0
-    required_fill_bottom = 318
+    required_fill_bottom = C.Y_BUILD_CEILING
 
     for z0 in range(0, heightmap.shape[0], row_batch):
         z1 = min(z0 + row_batch, heightmap.shape[0])
@@ -1002,19 +1265,30 @@ def validate_water_inputs(water_mask, water_depth, max_depth=None,
 
 def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                    stats, px0, pz0, paint_vegetation=True,
-                   terrain_offset=None, lake_only=False):
+                   terrain_offset=None, lake_only=False,
+                   vegetation_only=False, terrain_sub=None):
     """เขียนผิว+พืชในกรอบบล็อก [x0,x1) x [z0,z1)
 
     surf_y / elev / lc ครอบกรอบที่ pad แล้ว โดยมีมุมซ้ายบนอยู่ที่บล็อก (px0, pz0)
     ทุก array index แบบ [x, z] (transpose จากภาพซึ่งเป็น [z, x] มาแล้ว)
     """
-    cls, forest_p, leaf, snow_lv, soil = S.classify(
+    cls, forest_p, snow_lv, soil = S.classify(
         elev, lc, C.METERS_PER_BLOCK, block_m=C.METERS_PER_BLOCK, x0=px0,
         z0=pz0, terrain_offset=terrain_offset,
     )
-    biome_idx = S.biome_of(elev)
+    # biome เลือกจากสีที่ออกแบบไว้ใน biomes.py ไม่ใช่ตารางความสูงของ surface.py
+    # และต้องรู้จักน้ำ เพราะทะเลสาบ/ลำธารมีสีน้ำคนละเฉด
+    biome_idx = B.biome_index(elev, lc == S.LC["water"], wdepth)
+    biome_ids = np.asarray(
+        [P.biome_id(name) for name in B.FULL_NAME], dtype=np.uint32
+    )
     D = S.decor_fields(elev, C.METERS_PER_BLOCK, x0=px0, z0=pz0,
                        block_m=C.METERS_PER_BLOCK)
+    # หมู่ไม้ — ตัวกำหนดชนิดไม้เด่นของแต่ละผืน ใช้กฎเดียวกับพรีวิว
+    stand = E.stand_field(
+        elev.shape, C.METERS_PER_BLOCK, x0=px0, z0=pz0,
+        block_m=C.METERS_PER_BLOCK,
+    )
 
     # ชายฝั่ง — ไล่ระดับตามระยะ ไม่ใช่วงแหวนกรวดคมๆ รอบน้ำ
     #
@@ -1023,7 +1297,11 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     # ถ้าใส่หาดกรวดรอบลำธารทุกเส้นจะเห็นเป็นเส้นสีทาบทั่วแผนที่ ดูปลอมทันที
     isw = lc == S.LC["water"]
     # แรงของหาด: ทะเลสาบลึกได้หาดชัด ลำธารแทบไม่มี
-    shore_p = lake_shore_probability(isw, wdepth)
+    lake_shore_p, stream_bank_p = S.shore_probabilities(
+        isw, wdepth,
+        search_blocks=int(getattr(C, "LAKE_SHORE_SEARCH_BLOCKS", 12)),
+    )
+    shore_p = np.maximum(lake_shore_p, stream_bank_p)
     shore = shore_p > 0.0
 
     chunks = {}
@@ -1049,7 +1327,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         """
         if not (x0 <= wx < x1 and z0 <= wz < z1):
             return False
-        if wy < getattr(C, 'Y_FILL_BOTTOM', C.Y_TERRAIN_MIN) or wy > 318:
+        if (wy < getattr(C, 'Y_FILL_BOTTOM', C.Y_TERRAIN_MIN)
+                or wy > C.Y_BUILD_CEILING):
             return False
         if soft:
             return soft_buffer.set(wx, wy, wz, bid)
@@ -1067,16 +1346,36 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     dense = prepare_dense_fields(
         P, surf_y, elev, cls, snow_lv, soil, wdepth, shore, shore_p, D,
         x0, x1, z0, z1, px0, pz0,
+        terrain_sub=terrain_sub if terrain_sub is not None else terrain_offset,
     )
     object_surface = surf_y.copy()
     object_surface[
         x0 - px0:x1 - px0, z0 - pz0:z1 - pz0
-    ] = dense["y"]
-    stats["snow"] += paint_dense_chunks(
-        P, get_chunk, dense, x0, x1, z0, z1, lake_only=lake_only
-    )
-    stats["water"] = stats.get("water", 0) + int(dense["depth"].sum())
-    if dense["clipped"].any():
+    ] = dense["object_y"]
+    if vegetation_only:
+        # ต้องเช็คก่อนเขียนอะไรทั้งนั้น — โหมดนี้เชื่อผิวดินที่มีอยู่แล้ว
+        # ถ้าผิวจริงไม่ตรง heightmap พืชทั้งแปลงจะลอยกลางอากาศ
+        check = verify_terrain_level(P, get_chunk, dense, x0, x1, z0, z1)
+        bad = check["missing_surface"] + check["stone_above_surface"]
+        if check["checked"] and bad > max(1, check["checked"] // 20):
+            raise SystemExit(
+                "--vegetation-only refused: ภูมิประเทศในโลกไม่ตรงกับ "
+                f"heightmap ปัจจุบัน ({bad}/{check['checked']} คอลัมน์ที่สุ่ม"
+                f"ตรวจ; ผิวจริงต่างจากที่คาด {check['median_offset']:+d} บล็อก)"
+                "\nโหมดนี้ไม่เขียนผิวดิน จึงต้องมี terrain ที่ตรงกันอยู่ก่อน — "
+                "รัน build_terrain.py --patch <พิกัดเดิม> แล้ว paint_surface.py "
+                "ปกติหนึ่งรอบก่อน"
+            )
+        # ล้างของเก่าก่อนปลูกใหม่ แทนการรัน build_terrain.py ทั้ง patch
+        stats["cleared"] = stats.get("cleared", 0) + clear_vegetation_chunks(
+            P, get_chunk, dense, x0, x1, z0, z1
+        )
+    else:
+        stats["snow"] += paint_dense_chunks(
+            P, get_chunk, dense, x0, x1, z0, z1, lake_only=lake_only
+        )
+        stats["water"] = stats.get("water", 0) + int(dense["depth"].sum())
+    if dense["clipped"].any() and not vegetation_only:
         stats["water_clipped_columns"] = (
             stats.get("water_clipped_columns", 0) + int(dense["clipped"].sum())
         )
@@ -1090,7 +1389,11 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
     # ---- กองหินใต้น้ำ: เว้นระยะด้วย world-grid และยึดกับก้นแต่ละคอลัมน์ ----
     USTEP = 19
-    for gx in range((x0 - 3) // USTEP, (x1 + 3) // USTEP + 1):
+    underwater_x = (
+        range((x0 - 3) // USTEP, (x1 + 3) // USTEP + 1)
+        if not vegetation_only else ()
+    )
+    for gx in underwater_x:
         for gz in range((z0 - 3) // USTEP, (z1 + 3) // USTEP + 1):
             rng = V.tree_rng(gx, gz, 4041)
             wx = int((gx + 0.5 + (rng.random() - 0.5) * 0.72) * USTEP)
@@ -1153,6 +1456,9 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     seagrass &= dense["water"]
     tall_seagrass &= dense["water"]
     lily &= dense["water"]
+    if vegetation_only:
+        # โหมดนี้ไม่ล้างคอลัมน์น้ำ พืชน้ำเดิมจึงยังอยู่ ถ้าเขียนซ้ำจะได้ของซ้อน
+        seagrass = tall_seagrass = lily = np.zeros_like(seagrass)
     for qx, qz in zip(*np.nonzero(seagrass)):
         if setb(
             x0 + int(qx), int(dense["bed_y"][qx, qz]) + 1,
@@ -1192,7 +1498,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     for qx, qz in zip(*np.nonzero(plantable)):
         wx, wz = x0 + int(qx), z0 + int(qz)
         ix, iz = int(qx) + off_x, int(qz) + off_z
-        y = int(dense["y"][qx, qz])
+        y = int(dense["object_y"][qx, qz])
         k = int(dense["cls"][qx, qz])
         name = S.BLOCK_NAMES[k]
         e = float(dense["elev"][qx, qz])
@@ -1268,21 +1574,14 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
         snowy = e > S.SNOW_PATCHY - 250 or snow_lv[ix, iz] > 0
 
-        if e > S.TREELINE - 150:
-            kind, size = "spruce", "small"      # สนแคระใกล้แนวไม้
-        elif e > S.SUBALPINE:
-            kind = "spruce"
-            if size == "big":
-                size = "normal"
-        elif e > S.MONTANE:
-            kind = "spruce"
-        else:
-            if size == "small" and rng.random() < 0.30:
-                kind = "azalea"                 # ไม้พุ่มชั้นล่างในหุบเขา
-            elif rng.random() < 0.25:
-                kind = "birch"
-            else:
-                kind = "oak"
+        # ชนิดไม้มาจาก ecology.py ตัวเดียวกับที่พรีวิวใช้ — ห้ามตัดสินใหม่ที่นี่
+        kind = E.SPECIES[int(E.tree_species(
+            e, float(stand[ix, iz]), float(D["damp"][ix, iz]), rng.random()
+        ))]
+        if kind == "krummholz":
+            size = "small"                      # สนแคระใกล้แนวไม้
+        elif e > S.SUBALPINE and size == "big":
+            size = "normal"                     # ใกล้แนวไม้ ไม้เด่นเตี้ยลง
 
         variants = P.schems.get(kind) or []
         wrote = 0
@@ -1308,7 +1607,10 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                 wrote += setb(tx + dx, base + dy, tz + dz,
                               P.schem_id(nm, pr), soft=True)
         else:
-            if kind == "spruce":
+            if kind == "krummholz":
+                # ไม่มี schematic สนแคระในแพ็ก จึงใช้ทรงจากโค้ดเสมอ
+                blocks, wood = V.krummholz(rng), "spruce"
+            elif kind == "spruce":
                 blocks, wood = V.spruce(rng, size != "small"), "spruce"
             elif kind == "birch":
                 blocks, wood = V.birch(rng), "birch"
@@ -1399,16 +1701,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     # ---- biome + ธงแสง ---------------------------------------------------------
     for (cx, cz), ch in chunks.items():
         bx, bz = cx * CHUNK - px0, cz * CHUNK - pz0
-        if not lake_only:
-            try:
-                sub = biome_idx[bx:bx + CHUNK, bz:bz + CHUNK]
-                if sub.size:
-                    vals, counts = np.unique(sub, return_counts=True)
-                    name = S.BIOMES[int(vals[np.argmax(counts)])][1]
-                    bid = ch.biome_palette.get_add_biome(name)
-                    ch.biomes[:, :, :] = bid
-            except Exception:
-                pass
+        if not (lake_only or vegetation_only):
+            write_chunk_biomes(ch, biome_idx, bx, bz, biome_ids)
         ch.misc["isLightOn"] = amulet_nbt.ByteTag(0)
         ch.misc["block_light"] = {}
         ch.misc["sky_light"] = {}
@@ -1490,6 +1784,9 @@ def paint_fingerprint():
             "landcover.npz",
             "water_mask.npy",
             "water_depth.npy",
+            "terrain_shape.py",
+            "terrain_y.npy",
+            "terrain_sub.npy",
         )
     ]
     tree_dir = os.path.join(HERE, "trees")
@@ -1514,10 +1811,16 @@ def main():
             "menu before running paint_surface.py"
         )
 
+    early_meta = os.path.join(
+        HERE,
+        "paint_progress.vegetation.meta.json"
+        if "--vegetation-only" in sys.argv
+        else "paint_progress.meta.json",
+    )
     if (
         "--resume" in sys.argv
         and "--patch" not in sys.argv
-        and not os.path.exists(os.path.join(HERE, "paint_progress.meta.json"))
+        and not os.path.exists(early_meta)
     ):
         raise SystemExit(
             "--resume refused: checkpoint metadata is missing; "
@@ -1563,6 +1866,20 @@ def main():
         raise SystemExit(
             "water_mask.npy and water_depth.npy are required; run make_water.py"
         )
+    ty_path = os.path.join(HERE, "terrain_y.npy")
+    tsub_path = os.path.join(HERE, "terrain_sub.npy")
+    if not (os.path.exists(ty_path) and os.path.exists(tsub_path)):
+        raise SystemExit(
+            "ไม่พบ terrain_y.npy / terrain_sub.npy — รัน terrain_shape.py ก่อน"
+        )
+    ty_all = np.load(ty_path, mmap_mode="r")
+    tsub_all = np.load(tsub_path, mmap_mode="r")
+    if ty_all.shape != lc_all.shape:
+        raise SystemExit(
+            "terrain_y.npy มีขนาดไม่ตรงกับ landcover.npz; "
+            "รัน terrain_shape.py ใหม่"
+        )
+
     water_inputs = validate_water_inputs(wm_all, wd_all)
     if any(water_inputs[key] for key in (
         "water_without_depth", "nonwater_with_depth", "too_deep"
@@ -1576,10 +1893,20 @@ def main():
     patch = None
     terrain_only = "--terrain-only" in sys.argv
     lake_only = "--lake-only" in sys.argv
+    vegetation_only = "--vegetation-only" in sys.argv
     if lake_only and "--patch" not in sys.argv:
         raise SystemExit("--lake-only requires --patch to keep the test scoped")
-    if lake_only and terrain_only:
-        raise SystemExit("use either --lake-only or --terrain-only, not both")
+    exclusive = [
+        name for name, on in (
+            ("--terrain-only", terrain_only),
+            ("--lake-only", lake_only),
+            ("--vegetation-only", vegetation_only),
+        ) if on
+    ]
+    if len(exclusive) > 1:
+        raise SystemExit(
+            "use only one of " + ", ".join(exclusive)
+        )
     if "--patch" in sys.argv:
         i = sys.argv.index("--patch")
         pcx, pcz, psz = (int(sys.argv[i + 1]), int(sys.argv[i + 2]), int(sys.argv[i + 3]))
@@ -1617,8 +1944,12 @@ def main():
                 f"(ปัจจุบัน {water_check['configured_fill_bottom']})"
             )
 
-    done_file = os.path.join(HERE, "paint_progress.txt")
-    meta_file = os.path.join(HERE, "paint_progress.meta.json")
+    # checkpoint แยกไฟล์ต่อโหมด — ถ้าใช้ไฟล์เดียวกัน การรัน --vegetation-only
+    # ทั้งแผนที่จะมาร์ค tile ว่าเสร็จ แล้ว --resume ของ paint เต็มจะข้าม tile
+    # ที่ยังไม่มีผิวดิน/น้ำ
+    suffix = ".vegetation" if vegetation_only else ""
+    done_file = os.path.join(HERE, f"paint_progress{suffix}.txt")
+    meta_file = os.path.join(HERE, f"paint_progress{suffix}.meta.json")
     done = set()
     if patch is None:
         signature = paint_fingerprint()
@@ -1642,6 +1973,11 @@ def main():
         print("[MODE] terrain-only: ข้ามพืช ต้นไม้ และของตกแต่ง")
     if lake_only:
         print("[MODE] lake-only: paint lakebed, water, rocks, and aquatic plants only")
+    if vegetation_only:
+        print(
+            "[MODE] vegetation-only: ล้างชั้นเหนือผิวดินแล้วปลูกใหม่ "
+            "(ไม่แตะผิวดิน/น้ำ/หิมะ/biome)"
+        )
     level = amulet.load_level(C.WORLD_PATH)
     P = Painter(level)
     work_pad = max(PAD, P.tree_pad if not (terrain_only or lake_only) else PAD)
@@ -1654,6 +1990,7 @@ def main():
                 "schema": 1,
                 "signature": signature,
                 "pipeline_version": PAINT_PIPELINE_VERSION,
+                "mode": "vegetation-only" if vegetation_only else "full",
                 "region_blocks": RSIZE * CHUNK,
             },
         )
@@ -1683,12 +2020,13 @@ def main():
         # ภาพเป็น [z, x] แต่โค้ดที่เหลือใช้ [x, z] ทั้งหมด จึง transpose ตรงนี้ครั้งเดียว
         sub = hm[az0:az1, ax0:ax1].T.astype(np.float32)
         elev = lo + sub / 65535.0 * (hi - lo)
-        terrain_y = (
-            C.Y_TERRAIN_MIN
-            + sub / 65535.0 * (C.Y_TERRAIN_MAX - C.Y_TERRAIN_MIN)
+        # ระดับผิวดินต้องมาจาก terrain_y.npy ตัวเดียวกับที่ build_terrain ใช้
+        # ไม่ใช่คำนวณซ้ำจาก heightmap — dither ใน terrain_shape.py ทำให้สองสูตร
+        # ให้คนละคำตอบ แล้วผิวดินจะไม่ตรงกับหินที่ถมไว้
+        surf_y = ty_all[az0:az1, ax0:ax1].T.astype(np.int32)
+        terrain_offset = (
+            tsub_all[az0:az1, ax0:ax1].T.astype(np.float32) / 127.0
         )
-        surf_y = np.rint(terrain_y).astype(np.int32)
-        terrain_offset = terrain_y - surf_y
         lc_source = lc_all[az0:az1, ax0:ax1]
         if wm_all is not None:
             lc_source = S.apply_water_mask(
@@ -1703,6 +2041,8 @@ def main():
             paint_vegetation=not terrain_only,
             terrain_offset=terrain_offset,
             lake_only=lake_only,
+            vegetation_only=vegetation_only,
+            terrain_sub=terrain_offset,
         )
 
         level.save()
@@ -1735,6 +2075,8 @@ def main():
           f"ใต้น้ำ {stats.get('underwater_decor',0):,}, "
           f"หิมะ {stats['snow']:,} "
           f"ใน {(time.time()-t0)/60:.1f} นาที")
+    if stats.get("cleared"):
+        print(f"ล้างพืช/ของตกแต่งเก่า {stats['cleared']:,} บล็อก")
     if stats.get("validated_samples"):
         print(f"save validation ผ่าน {stats['validated_samples']:,} samples")
     if stats.get("water_clipped_columns"):
