@@ -19,6 +19,30 @@ class MakeWaterTests(unittest.TestCase):
         self.assertLessEqual(int(depth.max()), 30)
         self.assertEqual(int(depth[0, 0]), 0)
 
+    def test_chamfer_distance_matches_closed_form(self):
+        """ระยะต้องเท่ากับนิยาม chamfer 3-4 ถึง cell ที่ไม่ใช่ mask ที่ใกล้สุด
+
+        การแพร่แนวนอนในแต่ละแถวถูกเขียนเป็น prefix-minimum
+        (`np.minimum.accumulate`) แทนลูป Python ต่อ cell สูตรปิดนี้จึงเป็นตัวยืนยัน
+        ว่านิยามของระยะไม่ได้เปลี่ยนไป ไม่ใช่แค่ "ผลเหมือนโค้ดเดิม"
+        """
+        rng = np.random.default_rng(4242)
+        height, width = 13, 15
+        rows = np.arange(height)[:, None, None]
+        cols = np.arange(width)[None, :, None]
+        for _ in range(12):
+            mask = rng.random((height, width)) < 0.7
+            if not (~mask).any():
+                mask[0, 0] = False
+
+            got = W.chamfer_distance(mask)
+
+            zz, xx = np.nonzero(~mask)
+            dz = np.abs(rows - zz[None, None, :])
+            dx = np.abs(cols - xx[None, None, :])
+            steps = 3 * np.maximum(dz, dx) + np.minimum(dz, dx)
+            np.testing.assert_allclose(got, steps.min(axis=2) / 3.0, atol=1e-6)
+
     def test_underwater_relief_is_tile_invariant(self):
         water = np.ones((96, 112), dtype=bool)
         depth = np.full(water.shape, 18, dtype=np.uint8)

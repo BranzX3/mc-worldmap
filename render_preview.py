@@ -4,6 +4,10 @@
     python render_preview.py            # ทั้งแผนที่ ย่อเหลือ 2500 px
     python render_preview.py 4000       # ความละเอียดพรีวิวสูงขึ้น
     python render_preview.py 1200 5000 5000 3000   # ซูมดูรอบจุด x,z รัศมี 3000 บล็อก
+    python render_preview.py 1200 5000 5000 3000 --hydrology-root hydrology_global
+
+**ต้องระบุ --hydrology-root ให้ตรงกับที่ paint_surface ใช้** ไม่งั้นพรีวิวจะวาด
+น้ำจาก product ชุดเดิมซึ่งไม่ใช่ของที่อยู่ในโลก
 
 ปรับกฎได้ที่ surface.py แล้วรันใหม่ ใช้เวลาไม่กี่วินาที
 """
@@ -18,15 +22,37 @@ from PIL import Image
 import config as C
 import ecology as E
 import surface as S
+import hydrology_patch_io as H
+from pipeline_progress import use_utf8_stdout
 
 Image.MAX_IMAGE_PIXELS = None
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def positional_args(argv):
+    """คืนเฉพาะ argument ตามตำแหน่ง — ไฟล์นี้รับ out_px/x/z/radius แบบ positional
+    การเติม flag เข้ามาจึงต้องคัดออกก่อน ไม่งั้น int() จะระเบิดใส่ชื่อ flag
+    """
+    values = []
+    skip = False
+    for arg in argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if arg == "--hydrology-root":
+            skip = True
+            continue
+        values.append(arg)
+    return values
+
+
 def main():
-    out_px = int(sys.argv[1]) if len(sys.argv) > 1 else 2500
-    if len(sys.argv) > 4:
-        cx, cz, rad = int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+    use_utf8_stdout()
+    hydrology_root = H.resolve_hydrology_root(sys.argv)
+    args = positional_args(sys.argv)
+    out_px = int(args[0]) if args else 2500
+    if len(args) > 3:
+        cx, cz, rad = int(args[1]), int(args[2]), int(args[3])
         x0, x1 = max(0, cx - rad), min(C.GRID, cx + rad)
         z0, z1 = max(0, cz - rad), min(C.GRID, cz + rad)
         tag = f"_x{cx}_z{cz}_r{rad}"
@@ -44,7 +70,7 @@ def main():
 
     lcz = np.load(os.path.join(HERE, "landcover.npz"))
     lc = lcz["landcover"][z0:z1, x0:x1]
-    wm_path = os.path.join(HERE, "water_mask.npy")
+    wm_path = H.water_product_path("water_mask", hydrology_root, HERE)
     if os.path.exists(wm_path):
         water_mask = np.load(wm_path, mmap_mode="r")[z0:z1, x0:x1]
         lc = S.apply_water_mask(lc, water_mask)
@@ -59,12 +85,17 @@ def main():
     print(f"พรีวิว {img.shape[1]}x{img.shape[0]} px  ({spacing:.0f} m ต่อพิกเซล)")
 
     elev = lo + img.astype(np.float32) / 65535.0 * (hi - lo)
-    terrain_y = (
-        C.Y_TERRAIN_MIN
-        + img.astype(np.float32) / 65535.0
-        * (C.Y_TERRAIN_MAX - C.Y_TERRAIN_MIN)
-    )
-    terrain_offset = terrain_y - np.rint(terrain_y)
+    # เศษความสูงต้องมาจาก terrain_sub.npy ตัวเดียวกับที่ paint ใช้ ห้ามแปลงจาก
+    # heightmap เอง — terrain_shape.py ใส่ dither/ชั้นหิน/หลุมยุบไปแล้ว สองสูตร
+    # จึงให้คนละคำตอบ แล้วพรีวิวจะโชว์ผิวดินคนละชุดกับโลกจริง (ดู PIPELINE.md)
+    # terrain_sub เป็นของ terrain_shape ไม่ใช่ของ hydrology จึงอยู่ที่ราก เสมอ
+    tsub_path = os.path.join(HERE, "terrain_sub.npy")
+    if not os.path.exists(tsub_path):
+        raise SystemExit("ไม่พบ terrain_sub.npy — รัน terrain_shape.py ก่อน")
+    sub = np.load(tsub_path, mmap_mode="r")[z0:z1, x0:x1]
+    if step > 1:
+        sub = sub[::step, ::step]
+    terrain_offset = np.asarray(sub, dtype=np.float32) / 127.0
 
     print("คำนวณกฎผิวดิน ...")
     surf, forest_p, snow_extra, soil = S.classify(

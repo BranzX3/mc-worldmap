@@ -1,0 +1,200 @@
+{
+  "scope": "fullscale 10000x10000",
+  "products": "hydrology_global (hydrology_global)",
+  "water_cells": 2388168,
+  "water_share": 0.02388,
+  "lake": {
+    "components": 2158,
+    "core_cells": 1722612,
+    "not_flat_components": 132,
+    "not_flat_cells": 78527,
+    "not_flat_cell_share": 0.0456,
+    "spanning_a_tile": 18,
+    "crossing_a_tile_boundary": 60,
+    "lakes": [
+      {
+        "id": 152,
+        "cells": 538939,
+        "area_km2": 8.62,
+        "bbox": [
+          1206,
+          1745
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "25": 1.0
+        },
+        "tiles": 8
+      },
+      {
+        "id": 962,
+        "cells": 511111,
+        "area_km2": 8.18,
+        "bbox": [
+          1937,
+          938
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "18": 1.0
+        },
+        "tiles": 10
+      },
+      {
+        "id": 863,
+        "cells": 248831,
+        "area_km2": 3.98,
+        "bbox": [
+          554,
+          1393
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "68": 1.0
+        },
+        "tiles": 6
+      },
+      {
+        "id": 810,
+        "cells": 125246,
+        "area_km2": 2.0,
+        "bbox": [
+          391,
+          605
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "69": 1.0
+        },
+        "tiles": 4
+      },
+      {
+        "id": 1437,
+        "cells": 34955,
+        "area_km2": 0.56,
+        "bbox": [
+          278,
+          373
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "121": 1.0
+        },
+        "tiles": 4
+      },
+      {
+        "id": 249,
+        "cells": 32779,
+        "area_km2": 0.52,
+        "bbox": [
+          233,
+          236
+        ],
+        "level_spread": 0,
+        "level_share": {
+          "53": 1.0
+        },
+        "tiles": 2
+      }
+    ]
+  },
+  "stream": {
+    "cells": 448198,
+    "share_of_water": 0.1877,
+    "pools": 75472,
+    "trapped_pools": 1205,
+    "trapped_cells": 31224,
+    "trapped_cell_share": 0.0697,
+    "pool_size_median": 3,
+    "pool_size_p90": 11,
+    "tiny_pool_share": 0.4255,
+    "width_median": 2,
+    "width_mean": 2.14,
+    "width_1_share": 0.4485,
+    "step_flat_share": 0.8396,
+    "step_1_share": 0.1576,
+    "step_2plus": 1341,
+    "step_max": 4
+  },
+  "waterfall": {
+    "edges": 2369,
+    "columns": 2248,
+    "blocks": 5776,
+    "max_drop": 13,
+    "largest": [
+      {
+        "x": 2293,
+        "z": 3024,
+        "drop": 13,
+        "bottom_y": 75,
+        "top_y": 88
+      },
+      {
+        "x": 2305,
+        "z": 3004,
+        "drop": 13,
+        "bottom_y": 75,
+        "top_y": 88
+      },
+      {
+        "x": 2306,
+        "z": 3003,
+        "drop": 13,
+        "bottom_y": 75,
+        "top_y": 88
+      },
+      {
+        "x": 2307,
+        "z": 3002,
+        "drop": 13,
+        "bottom_y": 75,
+        "top_y": 88
+      },
+      {
+        "x": 2308,
+        "z": 3001,
+        "drop": 13,
+        "bottom_y": 75,
+        "top_y": 88
+      },
+      {
+        "x": 2122,
+        "z": 3317,
+        "drop": 12,
+        "bottom_y": 90,
+        "top_y": 102
+      },
+      {
+        "x": 2121,
+        "z": 3316,
+        "drop": 12,
+        "bottom_y": 90,
+        "top_y": 102
+      },
+      {
+        "x": 2120,
+        "z": 3315,
+        "drop": 12,
+        "bottom_y": 90,
+        "top_y": 102
+      }
+    ]
+  },
+  "bank": {
+    "bank_cells": 2802685,
+    "untreated_cells": 0,
+    "untreated_share": 0.0
+  },
+  "biome": {
+    "default_write_range": [
+      0,
+      255
+    ],
+    "columns_below_share": 0.0,
+    "columns_above_share": 0.2813,
+    "water_below_cells": 0,
+    "water_below_share": 0.0,
+    "water_y_min": 0,
+    "water_y_max": 520
+  }
+}

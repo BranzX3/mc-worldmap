@@ -48,13 +48,30 @@ from pipeline_progress import (
     load_progress_metadata,
     save_progress,
     save_progress_metadata,
+    working_set_mb,
     world_session_locked,
+)
+from hydrology_patch_io import (
+    GLOBAL_PRODUCTS,
+    LEGACY_PRODUCTS,
+    load_hydrology_patch,
+    overlay_window,
+    water_product_path,
 )
 
 Image.MAX_IMAGE_PIXELS = None
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHUNK = 16
-RSIZE = 32              # chunks ต่อ region
+# chunks ต่อ region — ตัวคูณหลักของ RAM ไม่ใช่ numpy แต่เป็น chunk cache ของ amulet
+#
+# amulet ถือทุก chunk ที่แตะไว้ใน RAM จนกว่าจะ level.purge() ที่ปลาย region
+# ที่ WORLD_HEIGHT=784 (สองเท่าวานิลลา) 1 chunk = 49 sections x 16^3 x uint32
+# = ~800 KB  ->  RSIZE 32 = 1024 chunks = ~820 MB บวก object/biome/NBT ตอน save
+# รวมจริงราว 1.0-1.5 GB ค้างตลอดทั้ง region
+#
+# 16 ให้ 256 chunks = ~205 MB แลกกับ save() ถี่ขึ้นสี่เท่า ซึ่งคุ้มมากบนเครื่อง
+# ที่รันงานอื่นอยู่ด้วย  ห้ามเพิ่มกลับเป็น 32 โดยไม่วัด RAM จริงก่อน
+RSIZE = 16
 PAD = max(
     4,
     int(getattr(C, "LAKE_SHORE_SEARCH_BLOCKS", 12))
@@ -135,6 +152,9 @@ class Painter:
             {"half": amulet_nbt.StringTag("upper")},
         ))
         self.lily = self.bid("lily_pad")
+        # วานิลลาไม่มีกก จึงใช้ sugar cane เป็นทรงแทน แต่กระจายเป็นกอเตี้ย
+        # ตามตลิ่งชื้น ไม่ใช้กฎฟาร์มที่ขึ้นเป็นแนวยาวสม่ำเสมอ
+        self.reed = self.bid("sugar_cane")
         self.moss_carpet = self.bid("moss_carpet")
         self.berry = {a: level.block_palette.get_add_block(Block(
             "minecraft", "sweet_berry_bush",
@@ -167,6 +187,15 @@ class Painter:
         self.sub_soil = [self.bid(n) for n in ("dirt", "dirt", "dirt", "coarse_dirt")]
         self.sub_alpine = [self.bid(n) for n in
                            ("coarse_dirt", "dirt", "gravel", "stone")]
+        # ชั้นวัสดุบนหน้าตั้งของผา เดิม build_terrain ถมหินล้วนและ terrain pass
+        # เปลี่ยนเฉพาะบล็อกบนสุด ทำให้ด้านข้างสูงหลายบล็อกเป็นกำแพงสีเดียว
+        self.cliff_face = [
+            self.bid(n) for n in (
+                "stone", "andesite", "calcite", "dripstone_block",
+                "tuff", "mossy_cobblestone", "diorite",
+                "dead_brain_coral_block",
+            )
+        ]
 
         self.plant_ids = {}
         self._air_memo = {}
@@ -453,7 +482,8 @@ def neighbour_relief(values):
     return relief
 
 
-def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0):
+def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
+                      elev_m=None):
     """Classify an alpine lakebed into broad, coherent sediment patches.
 
     The palette follows the energy gradient of a real lake: wave-washed
@@ -515,6 +545,20 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0):
         LAKEBED["cobble"]
     )
     result[rocky & (rock_texture >= 0.70)] = LAKEBED["gravel"]
+
+    # ทะเลสาบเหนือแนวไม้เป็นแอ่งน้ำแข็งละลายบนหินเปล่า ไม่มีตะกอนละเอียดสะสม
+    # ทราย/ดินเหนียว/โคลนจึงต้องกลายเป็นกรวดกับหินก้อน มิฉะนั้นจะเห็นก้นทราย
+    # กลางลานหินที่ 2,000 ม. ด้วยเหตุผลเดียวกับชายหาดบนภูเขา
+    if elev_m is not None:
+        bare = np.asarray(elev_m, dtype=np.float32) >= S.TREELINE
+        fine = np.isin(
+            result,
+            np.asarray(
+                [LAKEBED[n] for n in ("sand", "clay", "mud")], dtype=np.uint8
+            ),
+        )
+        result[bare & fine & (texture < 0.5)] = LAKEBED["gravel"]
+        result[bare & fine & (texture >= 0.5)] = LAKEBED["cobble"]
     return result
 
 
@@ -540,6 +584,7 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
     wz = np.arange(z0, z0 + shape[1], dtype=np.int64)[None, :]
     roll = bhash_array(wx, wz, 8)
     tall_roll = bhash_array(wx, wz, 18)
+    lily_roll = bhash_array(wx, wz, 28)
 
     density = np.zeros(shape, dtype=np.float32)
     density[habitat > 0.54] = 0.11
@@ -550,25 +595,78 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
             LAKEBED["sand"], LAKEBED["gravel"], LAKEBED["clay"],
         ], dtype=np.uint8),
     )
+    # Keep the top water block intact. Besides making saved-world validation
+    # unambiguous, this preserves a real source block for the scheduled fluid
+    # update when a shallow channel is first loaded.
     plantable = (
-        (depth >= 1)
+        (depth >= 2)
         & (depth <= 4)
         & (bed_relief <= 1)
         & suitable_bed
     )
     vegetation = plantable & (roll < density)
-    tall = vegetation & (depth >= 2) & (tall_roll < 0.24)
+    tall = vegetation & (depth >= 3) & (tall_roll < 0.24)
     short = vegetation & ~tall
 
     # Hallstätter See has steep, open alpine shores rather than broad lily
-    # marshes. Keep only a trace in the most sheltered one-block coves.
+    # marshes. Keep small clusters in sheltered one-block coves, but use an
+    # independent roll so the trace population is not accidentally restricted
+    # to the final 0.2% tail of the seagrass distribution.
     lily = (
         (depth == 1)
         & (bed_relief == 0)
-        & (habitat > 0.70)
-        & (roll > 0.998)
+        & np.isin(
+            bed_kind,
+            np.asarray([LAKEBED["clay"], LAKEBED["mud"]], dtype=np.uint8),
+        )
+        & (habitat > 0.68)
+        & (lily_roll < np.where(habitat > 0.76, 0.045, 0.012))
     )
     return short, tall, lily
+
+
+def riparian_reed_heights(water, water_depth, ground_ok, x0=0, z0=0):
+    """Return 0–3 block reed clumps beside shallow water.
+
+    Minecraft has no cattail/reed block, so the painter uses short sugar-cane
+    clumps as a silhouette substitute. Reeds occupy dry bank columns adjacent
+    to 1–2 block water, with broad world-space habitat noise keeping them out
+    of exposed shore sections and coordinate hashes making tiled runs stable.
+    """
+    water = np.asarray(water, dtype=bool)
+    water_depth = np.asarray(water_depth, dtype=np.int32)
+    ground_ok = np.asarray(ground_ok, dtype=bool)
+    if water.shape != water_depth.shape or water.shape != ground_ok.shape:
+        raise ValueError(
+            "water, water_depth, and ground_ok must have the same shape"
+        )
+
+    shallow = water & (water_depth >= 1) & (water_depth <= 2)
+    beside_shallow = np.zeros(water.shape, dtype=bool)
+    beside_shallow[1:] |= shallow[:-1]
+    beside_shallow[:-1] |= shallow[1:]
+    beside_shallow[:, 1:] |= shallow[:, :-1]
+    beside_shallow[:, :-1] |= shallow[:, 1:]
+
+    shape = water.shape
+    habitat = (
+        0.76 * (S.smooth_noise(x0, z0, shape, 46.0, 8963, 3) * 0.5 + 0.5)
+        + 0.24 * (S.smooth_noise(x0, z0, shape, 17.0, 9011, 2) * 0.5 + 0.5)
+    )
+    wx = np.arange(x0, x0 + shape[0], dtype=np.int64)[:, None]
+    wz = np.arange(z0, z0 + shape[1], dtype=np.int64)[None, :]
+    roll = bhash_array(wx, wz, 38)
+    height_roll = bhash_array(wx, wz, 48)
+
+    density = np.zeros(shape, dtype=np.float32)
+    density[habitat > 0.58] = 0.10
+    density[habitat > 0.66] = 0.24
+    occupied = ground_ok & ~water & beside_shallow & (roll < density)
+    heights = np.zeros(shape, dtype=np.uint8)
+    heights[occupied] = 1
+    heights[occupied & (height_roll < 0.62)] = 2
+    heights[occupied & (height_roll < 0.16)] = 3
+    return heights
 
 
 def slab_states(sub, cls, water, ice, snow=None, threshold=0.25):
@@ -602,9 +700,242 @@ def slab_states(sub, cls, water, ice, snow=None, threshold=0.25):
     return state
 
 
+def cliff_face_depths(height, minimum_drop=2):
+    """Return exposed vertical depth against the lowest cardinal neighbour."""
+    height = np.asarray(height, dtype=np.int32)
+    low = height.copy()
+    low[1:, :] = np.minimum(low[1:, :], height[:-1, :])
+    low[:-1, :] = np.minimum(low[:-1, :], height[1:, :])
+    low[:, 1:] = np.minimum(low[:, 1:], height[:, :-1])
+    low[:, :-1] = np.minimum(low[:, :-1], height[:, 1:])
+    depth = np.maximum(height - low, 0).astype(np.int16)
+    depth[depth < int(minimum_drop)] = 0
+    return depth
+
+
+_BEDROCK_KEYS = (
+    "calcite", "diorite", "andesite", "stone", "tuff", "deepslate",
+)
+_FRACTURED_ROCK_KEYS = (
+    "cobble", "cob_deep", "dripstone", "dead_brain",
+)
+_ROCK_DEPOSIT_KEYS = ("gravel", "clay")
+_ROCK_COATING_KEYS = ("mossy_cob", "pale_moss")
+_GEOLOGIC_TRANSITION_KEYS = (
+    _BEDROCK_KEYS
+    + _FRACTURED_ROCK_KEYS
+    + _ROCK_DEPOSIT_KEYS
+    + _ROCK_COATING_KEYS
+)
+_BEDROCK_IDS = np.asarray(
+    [S.IDX[k] for k in _BEDROCK_KEYS], dtype=np.uint8
+)
+_GEOLOGIC_TRANSITION_IDS = np.asarray(
+    [S.IDX[k] for k in _GEOLOGIC_TRANSITION_KEYS], dtype=np.uint8
+)
+
+# Only adjacent rock types in the light -> neutral -> dark sequence may spread
+# into one another. Deposits, coatings, and fractured blocks never become the
+# majority "bedrock" merely because they happen to touch it.
+_BEDROCK_COMPATIBLE = np.zeros(
+    (len(S.KEYS), len(S.KEYS)), dtype=bool
+)
+for _left, _right in (
+    ("calcite", "diorite"),
+    ("diorite", "andesite"),
+    ("andesite", "stone"),
+    ("stone", "tuff"),
+    ("tuff", "deepslate"),
+):
+    _a, _b = S.IDX[_left], S.IDX[_right]
+    _BEDROCK_COMPATIBLE[_a, _b] = True
+    _BEDROCK_COMPATIBLE[_b, _a] = True
+for _key in _BEDROCK_KEYS:
+    _BEDROCK_COMPATIBLE[S.IDX[_key], S.IDX[_key]] = True
+
+_BEDROCK_BRIDGE = np.full(len(S.KEYS), S.IDX["stone"], dtype=np.uint8)
+_BEDROCK_COATING = np.full(
+    len(S.KEYS), S.IDX["mossy_cob"], dtype=np.uint8
+)
+for _key in ("calcite", "diorite"):
+    _BEDROCK_BRIDGE[S.IDX[_key]] = S.IDX["diorite"]
+    _BEDROCK_COATING[S.IDX[_key]] = S.IDX["pale_moss"]
+_BEDROCK_BRIDGE[S.IDX["andesite"]] = S.IDX["andesite"]
+_BEDROCK_BRIDGE[S.IDX["stone"]] = S.IDX["stone"]
+for _key in ("tuff", "deepslate"):
+    _BEDROCK_BRIDGE[S.IDX[_key]] = S.IDX["tuff"]
+
+_SLAB_TRANSITION_BRIDGE = np.arange(len(S.KEYS), dtype=np.uint8)
+_SLAB_TRANSITION_BRIDGE[S.IDX["calcite"]] = S.IDX["diorite"]
+_SLAB_TRANSITION_BRIDGE[S.IDX["dripstone"]] = S.IDX["tuff"]
+_SLAB_TRANSITION_BRIDGE[S.IDX["pale_moss"]] = S.IDX["mossy_cob"]
+_PROTECTED_TRANSITION_IDS = np.asarray(
+    [S.IDX[k] for k in ("water", "ice", "blue_ice", "snow", "snow_thin")],
+    dtype=np.uint8,
+)
+
+
+def contextual_surface_blend(
+        cls, damp, slope, x0=0, z0=0, terrain_sub=None, snow=None):
+    """Blend neighbours along geologically compatible transition paths."""
+    cls = np.asarray(cls, dtype=np.uint8)
+    damp = np.asarray(damp, dtype=np.float32)
+    slope = np.asarray(slope, dtype=np.float32)
+    if cls.shape != damp.shape or cls.shape != slope.shape:
+        raise ValueError("cls, damp, and slope must have the same shape")
+    if terrain_sub is not None:
+        terrain_sub = np.asarray(terrain_sub, dtype=np.float32)
+        if terrain_sub.shape != cls.shape:
+            raise ValueError("terrain_sub must have the same shape as cls")
+    if snow is not None:
+        snow = np.asarray(snow)
+        if snow.shape != cls.shape:
+            raise ValueError("snow must have the same shape as cls")
+
+    padded = np.pad(cls, 1, mode="edge")
+    neighbours = np.stack((
+        padded[:-2, 1:-1], padded[2:, 1:-1],
+        padded[1:-1, :-2], padded[1:-1, 2:],
+    ))
+    bedrock = np.isin(cls, _BEDROCK_IDS)
+    rock = np.isin(cls, _GEOLOGIC_TRANSITION_IDS)
+    soil = np.isin(cls, S.SOIL_IDS)
+    neighbour_rock = np.isin(
+        neighbours, _GEOLOGIC_TRANSITION_IDS
+    ).any(axis=0)
+    neighbour_soil = np.isin(neighbours, S.SOIL_IDS).any(axis=0)
+    protected = np.isin(cls, _PROTECTED_TRANSITION_IDS)
+
+    broad = S.smooth_noise(x0, z0, cls.shape, 18.0, 104729, octaves=3)
+    fine = S.white_noise(x0, z0, cls.shape, 104759)
+    choice = np.clip(
+        0.78 * (broad * 0.5 + 0.5) + 0.22 * fine, 0.0, 0.999
+    )
+
+    result = cls.copy()
+
+    # Soil patches may merge with any soil. Bedrock patches may merge only
+    # through one edge of the compatibility graph above.
+    dominant_soil = cls.copy()
+    dominant_soil_count = np.zeros(cls.shape, dtype=np.uint8)
+    for material_id in S.SOIL_IDS:
+        count = np.sum(
+            neighbours == material_id, axis=0, dtype=np.uint8
+        )
+        better = count > dominant_soil_count
+        dominant_soil[better] = material_id
+        dominant_soil_count[better] = count[better]
+    soil_limit = np.where(
+        dominant_soil_count >= 4, 1.0,
+        np.where(dominant_soil_count == 3, 0.72, 0.30),
+    )
+    adopt_soil = (
+        soil
+        & (dominant_soil != cls)
+        & (dominant_soil_count >= 2)
+        & (choice < soil_limit)
+        & ~protected
+    )
+    result[adopt_soil] = dominant_soil[adopt_soil]
+
+    dominant_bedrock = cls.copy()
+    dominant_bedrock_count = np.zeros(cls.shape, dtype=np.uint8)
+    for material_id in _BEDROCK_IDS:
+        count = np.sum(
+            neighbours == material_id, axis=0, dtype=np.uint8
+        )
+        better = (
+            bedrock
+            & _BEDROCK_COMPATIBLE[cls, material_id]
+            & (count > dominant_bedrock_count)
+        )
+        dominant_bedrock[better] = material_id
+        dominant_bedrock_count[better] = count[better]
+    bedrock_limit = np.where(
+        dominant_bedrock_count >= 4, 1.0,
+        np.where(dominant_bedrock_count == 3, 0.72, 0.46),
+    )
+    adopt_bedrock = (
+        bedrock
+        & (dominant_bedrock != cls)
+        & (dominant_bedrock_count >= 2)
+        & (choice < bedrock_limit)
+        & ~protected
+    )
+    result[adopt_bedrock] = dominant_bedrock[adopt_bedrock]
+
+    # Anchor soil/rock contacts to the actual neighbouring bedrock. Loose
+    # deposits and moss therefore inherit the local light/neutral/dark family.
+    anchor = np.full(cls.shape, S.IDX["stone"], dtype=np.uint8)
+    anchor_count = np.zeros(cls.shape, dtype=np.uint8)
+    for material_id in _BEDROCK_IDS:
+        count = np.sum(
+            neighbours == material_id, axis=0, dtype=np.uint8
+        )
+        better = count > anchor_count
+        anchor[better] = material_id
+        anchor_count[better] = count[better]
+    missing_anchor = bedrock & (anchor_count == 0)
+    anchor[missing_anchor] = cls[missing_anchor]
+    bridge = _BEDROCK_BRIDGE[anchor]
+    coating = _BEDROCK_COATING[anchor]
+
+    soil_edge = soil & neighbour_rock & ~protected
+    rock_edge = rock & neighbour_soil & ~protected
+
+    # Soil -> rock: fines, loose fragments, damp coating, then local bedrock.
+    result[soil_edge & (choice < 0.22)] = S.IDX["coarse"]
+    result[soil_edge & (choice >= 0.22) & (choice < 0.48)] = S.IDX["gravel"]
+    result[
+        soil_edge & (choice >= 0.48) & (choice < 0.68) & (damp > 0.58)
+    ] = S.IDX["moss"]
+    dry_middle = (
+        soil_edge & (choice >= 0.48) & (choice < 0.68) & (damp <= 0.58)
+    )
+    result[dry_middle] = bridge[dry_middle]
+    upper_edge = soil_edge & (choice >= 0.68) & (choice < 0.86)
+    upper_wet = upper_edge & (damp > 0.58)
+    result[upper_wet] = coating[upper_wet]
+    result[upper_edge & ~upper_wet] = bridge[upper_edge & ~upper_wet]
+    exposed = soil_edge & (choice >= 0.86)
+    result[exposed] = bridge[exposed]
+
+    # Rock -> soil: steep contacts retain local bedrock; gentle contacts
+    # weather into deposits. Wet contacts use a family-aware coating.
+    steep = rock_edge & (slope >= 36.0)
+    steep_wet = steep & (damp > 0.62)
+    result[steep_wet] = coating[steep_wet]
+    result[steep & ~steep_wet] = bridge[steep & ~steep_wet]
+    gentle = rock_edge & (slope < 36.0)
+    result[gentle & (choice < 0.38)] = S.IDX["gravel"]
+    result[gentle & (choice >= 0.38) & (damp <= 0.62)] = S.IDX["coarse"]
+    result[gentle & (choice >= 0.38) & (damp > 0.62)] = S.IDX["moss"]
+
+    # Some natural full blocks have no vanilla slab. At a transition that
+    # genuinely needs the half-step, choose the nearest compatible slab family.
+    if terrain_sub is not None:
+        needs_slab = (
+            (np.abs(terrain_sub) > 0.25)
+            & (result != cls)
+            & ~S.HAS_SLAB[result]
+            & ~protected
+        )
+        if snow is not None:
+            needs_slab &= snow == 0
+        slab_bridge = _SLAB_TRANSITION_BRIDGE[result]
+        can_bridge = slab_bridge != result
+        use_bridge = needs_slab & can_bridge
+        result[use_bridge] = slab_bridge[use_bridge]
+    return result
+
+
 def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                          shore, shore_p, decor, x0, x1, z0, z1, px0, pz0,
-                         terrain_sub=None):
+                         terrain_sub=None, water_surface_y=None,
+                         global_lake_mask=None, waterfall_top_y=None,
+                         waterfall_lip_mask=None,
+                         waterfall_pool_mask=None,
+                         flowing_water_mask=None):
     """เตรียม array สำหรับผิวดิน ชั้นดิน น้ำ น้ำแข็ง และหิมะ
 
     array ที่คืนมามีพิกัด [x, z] เฉพาะกรอบจริง ไม่รวม padding การแยกขั้นนี้
@@ -617,9 +948,13 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
 
     base_y = surf_y[sx, sz].astype(np.int32, copy=False)
     elev_core = elev[sx, sz].astype(np.float32, copy=False)
-    cls_core = cls[sx, sz]
+    blended_cls = contextual_surface_blend(
+        cls, decor["damp"], decor["slope"], x0=px0, z0=pz0,
+        terrain_sub=terrain_sub, snow=snow_lv,
+    )
+    cls_core = blended_cls[sx, sz]
     snow_core = snow_lv[sx, sz]
-    soil_core = soil[sx, sz]
+    soil_core = np.isin(cls_core, S.SOIL_IDS)
     depth_requested = wdepth[sx, sz].astype(np.int32, copy=False)
     patch_a = decor["patch_a"][sx, sz]
     patch_b = decor["patch_b"][sx, sz]
@@ -633,15 +968,37 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     water_full = cls == S.IDX["water"]
     water_mask = water_full[sx, sz]
     ice_mask = cls_core == S.IDX["ice"]
-    adjusted_full, lake_full = lake_surface_levels(
-        surf_y, water_full, wdepth
-    )
+    if water_surface_y is None:
+        adjusted_full, lake_full = lake_surface_levels(
+            surf_y, water_full, wdepth
+        )
+    else:
+        water_surface_y = np.asarray(water_surface_y, dtype=np.int32)
+        if water_surface_y.shape != surf_y.shape:
+            raise ValueError(
+                "water_surface_y and surf_y must have the same shape"
+            )
+        adjusted_full = np.asarray(surf_y, dtype=np.int32).copy()
+        adjusted_full[water_full] = water_surface_y[water_full]
+        if global_lake_mask is None:
+            _unused, lake_full = lake_surface_levels(
+                surf_y, water_full, wdepth
+            )
+        else:
+            lake_full = np.asarray(global_lake_mask, dtype=bool)
+            if lake_full.shape != surf_y.shape:
+                raise ValueError(
+                    "global_lake_mask and surf_y must have the same shape"
+                )
     level_adjusted = lake_full[sx, sz]
     y = adjusted_full[sx, sz]
+    cliff_face_depth = cliff_face_depths(adjusted_full)[sx, sz]
+    cliff_face_depth[water_mask | ice_mask] = 0
 
     surface_id = np.take(
         np.asarray(P.surface_ids, dtype=np.uint32), cls_core
     ).copy()
+    material_cls = cls_core.copy()
 
     # ชายฝั่งคำนวณพร้อมกันทั้ง region เพื่อลด hash/setb รายบล็อก
     shore_texture = np.clip(0.68 * patch_a + 0.32 * patch_b, 0.0, 1.0)
@@ -652,11 +1009,25 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         & (shore_texture < shore_p[sx, sz])
     )
     cobble = beach & (bhash_array(wx, wz, 9) < 0.06)
-    sand = beach & ~cobble & (patch_b > 0.60)
+    # ทรายชายหาดคือตะกอนละเอียดที่สะสมบนพื้นดิน ไม่ใช่สิ่งที่โผล่กลางลานหิน
+    #
+    # เดิมเลือกทราย/กรวดจาก noise ล้วน ๆ โดยไม่ดูว่าพื้นเดิมเป็นอะไรและอยู่สูง
+    # แค่ไหน ลำธารที่ไหลผ่านหน้าผาหินปูนที่ 2,000 ม. จึงได้หาดทรายเหมือนทะเลสาบ
+    # ในหุบเขา — เห็นเป็นแถบทรายกลางภูเขาหินซึ่งผิดทั้งธรณีวิทยาและสายตา
+    #
+    # เงื่อนไขสองชั้น: ต้องอยู่บนพื้นที่เป็นดินจริง และต่ำกว่าแนวไม้ ที่สูงกว่า
+    # นั้นเป็นเขตกัดกร่อนเชิงกล มีแต่กรวดกับหินก้อน
+    sand_ground = np.isin(material_cls, S.SOIL_IDS) & (
+        elev_core < S.TREELINE
+    )
+    sand = beach & ~cobble & (patch_b > 0.60) & sand_ground
     gravel = beach & ~cobble & ~sand
     surface_id[cobble] = P.shore_cobble
     surface_id[sand] = P.bed_sand
     surface_id[gravel] = P.bed_gravel
+    material_cls[cobble] = S.IDX["cobble"]
+    # sand/gravel have no natural slab; gravel is the no-slab representative
+    material_cls[sand | gravel] = S.IDX["gravel"]
 
     # Low, damp gaps between beach patches become coherent mud/moss wetlands.
     # This keeps the shore varied without drawing a continuous material ring.
@@ -673,6 +1044,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     wet_moss = wet_shore & ~wet_mud
     surface_id[wet_mud] = P.surface_ids[S.IDX["mud"]]
     surface_id[wet_moss] = P.surface_ids[S.IDX["moss"]]
+    material_cls[wet_mud] = S.IDX["mud"]
+    material_cls[wet_moss] = S.IDX["moss"]
 
     # วัสดุใต้ผิวสามชั้น
     subsoil_keys = ("grass", "moss", "podzol", "dirt", "coarse", "rooted", "mud")
@@ -703,7 +1076,7 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     # Alpine-lake scenario: coherent substrate patches follow depth and relief
     # instead of forming hard concentric material bands.
     bed_kind = lakebed_materials(
-        depth, bed_relief, level_adjusted, x0=x0, z0=z0
+        depth, bed_relief, level_adjusted, x0=x0, z0=z0, elev_m=elev_core
     )
     material_ids = np.asarray([
         P.bed_clay,       # stream is replaced from bed_stream below
@@ -725,6 +1098,38 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     )
     bed_id[stream] = stream_palette[stream_i[stream]]
 
+    if waterfall_top_y is None:
+        waterfall_top = np.full(
+            shape, np.iinfo(np.int16).min, dtype=np.int16
+        )
+    else:
+        waterfall_top_y = np.asarray(waterfall_top_y, dtype=np.int16)
+        if waterfall_top_y.shape != surf_y.shape:
+            raise ValueError(
+                "waterfall_top_y and surf_y must have the same shape"
+            )
+        waterfall_top = waterfall_top_y[sx, sz]
+    waterfall_foot = water_mask & (waterfall_top > y)
+    waterfall_lip = (
+        np.zeros(shape, dtype=bool)
+        if waterfall_lip_mask is None
+        else np.asarray(waterfall_lip_mask, dtype=bool)[sx, sz]
+    )
+    waterfall_pool = (
+        np.zeros(shape, dtype=bool)
+        if waterfall_pool_mask is None
+        else np.asarray(waterfall_pool_mask, dtype=bool)[sx, sz]
+    )
+    rock_feature = water_mask & (
+        waterfall_foot | waterfall_lip | waterfall_pool
+    )
+    bed_id[rock_feature] = P.bed_stone
+    flowing_water = (
+        np.zeros(shape, dtype=bool)
+        if flowing_water_mask is None
+        else np.asarray(flowing_water_mask, dtype=bool)[sx, sz] & water_mask
+    )
+
     ice_band = np.minimum((patch_c * 3).astype(np.intp), 2)
     ice_top = np.choose(
         ice_band,
@@ -735,7 +1140,7 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         slab = np.zeros(shape, dtype=np.int8)
     else:
         slab = slab_states(
-            terrain_sub[sx, sz], cls_core, water_mask, ice_mask,
+            terrain_sub[sx, sz], material_cls, water_mask, ice_mask,
             snow=snow_core,
         )
     # ผิวที่ของอื่นต้องยืนอยู่บน — สูงขึ้นหนึ่งเมื่อมี slab วางทับ
@@ -744,15 +1149,18 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     return {
         "y": y,
         "slab": slab,
-        "slab_id": np.take(P.slab_ids, cls_core),
+        "slab_id": np.take(P.slab_ids, material_cls),
         "object_y": object_y,
         "base_y": base_y,
         "level_adjusted": level_adjusted,
         "elev": elev_core,
-        "cls": cls_core,
+        "cls": material_cls,
         "snow": snow_core,
         "soil": soil_core,
         "surface_id": surface_id,
+        "cliff_face_depth": cliff_face_depth,
+        "damp": damp,
+        "slope": slope,
         "subsoil_mask": subsoil_mask,
         "subsoil_ids": subsoil_ids,
         "water": water_mask,
@@ -761,6 +1169,10 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "bed_relief": bed_relief,
         "bed_kind": bed_kind,
         "bed_id": bed_id,
+        "waterfall_top_y": waterfall_top,
+        "waterfall_lip": waterfall_lip,
+        "waterfall_pool": waterfall_pool,
+        "flowing_water": flowing_water,
         "clipped": clipped,
         "ice": ice_mask,
         "ice_top": ice_top,
@@ -808,6 +1220,14 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
             water = dense["water"][ss]
             depth = dense["depth"][ss]
             active_water = water & (depth > 0)
+            waterfall_top = dense.get("waterfall_top_y")
+            waterfall_top = (
+                waterfall_top[ss]
+                if waterfall_top is not None
+                else np.full(
+                    y.shape, np.iinfo(np.int16).min, dtype=np.int16
+                )
+            )
 
             y_lo = max(
                 fill_bottom,
@@ -823,7 +1243,14 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
             lift = dense["slab"][ss] > 0
             y_hi = min(
                 C.Y_BUILD_CEILING,
-                int((y + snow_height + lift).max()) + 1,
+                max(
+                    int((y + snow_height + lift).max()) + 1,
+                    int(
+                        waterfall_top.max(
+                            initial=np.iinfo(np.int16).min
+                        )
+                    ) + 1,
+                ),
             )
 
             volume = np.asarray(
@@ -849,6 +1276,109 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
                 for d, ids in enumerate(dense["subsoil_ids"], 1):
                     m = subsoil & (top - d >= 0)
                     volume[gx[m], (top - d)[m], gz[m]] = ids[ss][m]
+
+                # ทาสีด้านข้างที่เปิดออกจริงเป็นแนวชั้นกว้าง 2–4 บล็อก
+                # ใช้ hash ระดับกลุ่มจึงไม่เป็นเม็ดเกลือพริกไทย และไม่แตะยอดผิว
+                # ซึ่ง surface classifier เลือกวัสดุให้แล้ว
+                face_field = dense.get("cliff_face_depth")
+                if face_field is not None:
+                    face_depth = face_field[ss]
+                    face_palette = np.asarray(P.cliff_face, dtype=np.uint32)
+                    face_shape = face_depth.shape
+                    # สนามธรณีต่อเนื่องหลายสเกล: macro เปลี่ยนชุดหินช้า ๆ,
+                    # warp ทำให้ชั้นไม่เป็นเส้นระดับไม้บรรทัด และ joint ใช้
+                    # zero-contour แคบ ๆ เป็นรอยแตกต่อเนื่องลงตามหน้าผา
+                    macro = S.smooth_noise(
+                        wx0, wz0, face_shape, 52.0, 9101, octaves=3
+                    )
+                    warp = np.rint(
+                        S.smooth_noise(
+                            wx0, wz0, face_shape, 24.0, 9157, octaves=3
+                        ) * 3.0
+                    ).astype(np.int32)
+                    joint = np.abs(S.smooth_noise(
+                        wx0, wz0, face_shape, 18.0, 9209, octaves=3
+                    ))
+                    grain = S.white_noise(wx0, wz0, face_shape, 9257)
+                    damp_face = dense.get("damp")
+                    damp_core = (
+                        damp_face[ss] if damp_face is not None
+                        else np.zeros(face_shape, dtype=np.float32)
+                    )
+                    elev_core = dense["elev"][ss]
+                    for d in range(1, int(face_depth.max(initial=0)) + 1):
+                        m = (face_depth >= d) & (top - d >= 0)
+                        if not m.any():
+                            continue
+                        world_y = y - d
+                        phase = np.mod(world_y + warp, 13)
+                        pi = np.zeros(face_shape, dtype=np.intp)
+                        high_face = elev_core >= S.SUBALPINE
+                        low_mid_face = ~high_face
+                        pi[high_face] = 6
+
+                        # ชั้นรองสีใกล้เคียงกว้าง 1–2 บล็อก เป็นโครงหลัก
+                        pi[
+                            high_face
+                            & ((phase == 4) | (phase == 5))
+                            & (macro > -0.25)
+                        ] = 2
+                        pi[
+                            high_face
+                            & ((phase == 0) | (phase == 1))
+                            & (macro < 0.45)
+                        ] = 1
+                        pi[high_face & (joint < 0.045)] = 0
+                        pi[
+                            low_mid_face
+                            & ((phase == 0) | (phase == 1))
+                            & (macro > -0.45)
+                        ] = 1
+                        # เลนส์หินปูนสว่างและชั้นผุสีเข้มเกิดเฉพาะบาง geological
+                        # domain จึงไม่พาดเป็นลายทางสม่ำเสมอทั้งภูเขา
+                        pi[
+                            low_mid_face & (phase == 5) & (macro > 0.18)
+                        ] = 2
+                        pi[
+                            low_mid_face & (phase == 9) & (macro < -0.20)
+                        ] = 4
+                        # joint เป็นเส้นแคบต่อเนื่อง ไม่ใช่เม็ดสุ่มรายบล็อก
+                        pi[
+                            low_mid_face
+                            & (joint < 0.045)
+                            & (macro < 0.35)
+                        ] = 3
+                        mineral_halo = (
+                            low_mid_face
+                            & (joint >= 0.045)
+                            & (joint < 0.11)
+                            & (macro < 0.45)
+                        )
+                        pi[mineral_halo] = 7
+                        # คราบชื้น/มอสอยู่ตาม joint เฉพาะระดับต่ำกว่าแนว alpine
+                        wet = (
+                            (damp_core > 0.68)
+                            & (elev_core < S.MONTANE)
+                            & (joint >= 0.045)
+                            & (joint < 0.11)
+                        )
+                        pi[wet] = 5
+                        # เม็ด weathering ละเอียดมีน้อยและเลือกสีใกล้เคียง
+                        pi[(grain < 0.035) & low_mid_face & (pi == 0)] = 1
+                        pi[(grain < 0.035) & high_face & (pi == 6)] = 1
+                        face_id = face_palette[pi]
+                        # ต่อวัสดุผิวบนลงมาที่หน้าตั้งก่อนเข้าแนวชั้นหลัก
+                        # โดยใช้ cls หลัง transition แล้ว จึงเข้าคู่กับ slab ด้วย
+                        top_cls = dense["cls"][ss]
+                        top_rock = np.isin(
+                            top_cls, _GEOLOGIC_TRANSITION_IDS
+                        )
+                        if d == 1:
+                            face_id[top_rock] = dense["surface_id"][ss][top_rock]
+                        elif d == 2:
+                            carry = top_rock & (macro > 0.05)
+                            face_id[carry] = dense["surface_id"][ss][carry]
+                        volume[gx[m], (top - d)[m], gz[m]] = face_id[m]
 
             if active_water.any():
                 bed = bed_y - y_lo
@@ -884,6 +1414,12 @@ def paint_dense_chunks(P, get_chunk, dense, x0, x1, z0, z1,
                     & (ys <= y[:, None, :])
                 )
                 volume[fill] = P.water
+                curtain = (
+                    active_water[:, None, :]
+                    & (ys > y[:, None, :])
+                    & (ys <= waterfall_top[:, None, :])
+                )
+                volume[curtain] = P.water
 
             if ice.any() and not lake_only:
                 volume[gx[ice], top[ice], gz[ice]] = dense["ice_top"][ss][ice]
@@ -1263,10 +1799,60 @@ def validate_water_inputs(water_mask, water_depth, max_depth=None,
     }
 
 
+def schedule_source_water_ticks(
+    level, surface_y, flowing_water, waterfall_top_y,
+    x0, x1, z0, z1, px0, pz0, dimension=None,
+):
+    """Queue vanilla fluid updates for source-water streams and waterfalls."""
+    surface_y = np.asarray(surface_y, dtype=np.int32)
+    flowing_water = np.asarray(flowing_water, dtype=bool)
+    waterfall_top_y = np.asarray(waterfall_top_y, dtype=np.int32)
+    if not (
+        surface_y.shape == flowing_water.shape == waterfall_top_y.shape
+    ):
+        raise ValueError("fluid tick fields must have matching shapes")
+    sx = slice(x0 - px0, x1 - px0)
+    sz = slice(z0 - pz0, z1 - pz0)
+    curtain_top = waterfall_top_y[sx, sz]
+    # A waterfall curtain may be anchored on the standing-water side of a
+    # lake/river boundary. Queue that column too even when its base cell is not
+    # part of the explicit flowing mask.
+    stage = surface_y[sx, sz]
+    wet = flowing_water[sx, sz] | (curtain_top >= stage)
+    dimension = C.DIMENSION if dimension is None else dimension
+    touched = {}
+    queued = 0
+    qx, qz = np.where(wet)
+    for local_x, local_z in zip(qx, qz):
+        wx, wz = x0 + int(local_x), z0 + int(local_z)
+        bottom = int(stage[local_x, local_z])
+        top = max(bottom, int(curtain_top[local_x, local_z]))
+        chunk_key = (wx >> 4, wz >> 4)
+        chunk = touched.get(chunk_key)
+        if chunk is None:
+            chunk = level.get_chunk(chunk_key[0], chunk_key[1], dimension)
+            touched[chunk_key] = chunk
+        ticks = chunk.misc.setdefault("fluid_ticks", {})
+        for wy in range(bottom, top + 1):
+            # Spread the work over four ticks so a loaded region does not
+            # process every source in the same server tick.
+            delay = 1 + ((wx * 31 + wy * 17 + wz * 13) & 3)
+            ticks[(wx, wy, wz)] = ("minecraft:water", delay, 0)
+            queued += 1
+    for chunk in touched.values():
+        chunk.changed = True
+        level.put_chunk(chunk, dimension)
+    return queued
+
+
 def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                    stats, px0, pz0, paint_vegetation=True,
                    terrain_offset=None, lake_only=False,
-                   vegetation_only=False, terrain_sub=None):
+                   vegetation_only=False, terrain_sub=None,
+                   water_surface_y=None, global_lake_mask=None,
+                   waterfall_top_y=None, waterfall_lip_mask=None,
+                   waterfall_pool_mask=None, flowing_water_mask=None,
+                   active_chunks=None):
     """เขียนผิว+พืชในกรอบบล็อก [x0,x1) x [z0,z1)
 
     surf_y / elev / lc ครอบกรอบที่ pad แล้ว โดยมีมุมซ้ายบนอยู่ที่บล็อก (px0, pz0)
@@ -1278,7 +1864,12 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     )
     # biome เลือกจากสีที่ออกแบบไว้ใน biomes.py ไม่ใช่ตารางความสูงของ surface.py
     # และต้องรู้จักน้ำ เพราะทะเลสาบ/ลำธารมีสีน้ำคนละเฉด
-    biome_idx = B.biome_index(elev, lc == S.LC["water"], wdepth)
+    # `global_lake_mask` คือ standing_water_mask ของ hydrology ซึ่งเป็นตัวจำแนก
+    # นิ่ง/ไหลที่ถูกต้อง — เกณฑ์ depth>=3 ที่ biome_index ใช้เป็น fallback ให้สี
+    # ทะเลสาบกับแม่น้ำสลับกัน (ดู biome_index)
+    biome_idx = B.biome_index(
+        elev, lc == S.LC["water"], wdepth, standing=global_lake_mask,
+    )
     biome_ids = np.asarray(
         [P.biome_id(name) for name in B.FULL_NAME], dtype=np.uint32
     )
@@ -1308,6 +1899,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
     def get_chunk(cx, cz):
         key = (cx, cz)
+        if active_chunks is not None and key not in active_chunks:
+            return None
         ch = chunks.get(key)
         if ch is None:
             try:
@@ -1347,6 +1940,12 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         P, surf_y, elev, cls, snow_lv, soil, wdepth, shore, shore_p, D,
         x0, x1, z0, z1, px0, pz0,
         terrain_sub=terrain_sub if terrain_sub is not None else terrain_offset,
+        water_surface_y=water_surface_y,
+        global_lake_mask=global_lake_mask,
+        waterfall_top_y=waterfall_top_y,
+        waterfall_lip_mask=waterfall_lip_mask,
+        waterfall_pool_mask=waterfall_pool_mask,
+        flowing_water_mask=flowing_water_mask,
     )
     object_surface = surf_y.copy()
     object_surface[
@@ -1480,6 +2079,26 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
             z0 + int(qz), P.lily, only_air=True,
         ):
             stats["aqua"] = stats.get("aqua", 0) + 1
+
+    # กกริมน้ำอยู่บนฝั่ง ไม่ใช่ในคอลัมน์น้ำ จึงวางหลังเติมน้ำและก่อนพืชพื้นล่าง
+    # เพื่อให้กอหนึ่งกอนับเป็นหน่วยเดียวแม้สูงหลายบล็อก
+    reed_ground = (
+        (dense["soil"] | dense["wet_shore"])
+        & (dense["snow"] == 0)
+        & ~dense["ice"]
+        & ~dense["beach"]
+    )
+    reed_heights = riparian_reed_heights(
+        dense["water"], dense["depth"], reed_ground, x0=x0, z0=z0
+    )
+    for qx, qz in zip(*np.nonzero(reed_heights)):
+        wx, wz = x0 + int(qx), z0 + int(qz)
+        base = int(dense["object_y"][qx, qz]) + 1
+        wrote = 0
+        for dy in range(int(reed_heights[qx, qz])):
+            wrote += setb(wx, base + dy, wz, P.reed, only_air=True)
+        if wrote:
+            stats["reeds"] = stats.get("reeds", 0) + 1
 
     # ---- พืชพื้นล่าง: วนเฉพาะคอลัมน์ที่ปลูกได้ -------------------------------
     # เดิมวนครบทุกคอลัมน์ แม้เป็นน้ำ/หิน/หิมะ การรวม mud ตรงนี้ยังแก้บั๊กเดิม
@@ -1714,19 +2333,34 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
 
 def validate_saved_tile(level, surf_y, lc, wdepth, x0, x1, z0, z1,
-                        px0, pz0, samples_per_kind=8, lake_only=False):
+                        px0, pz0, samples_per_kind=8, lake_only=False,
+                        water_surface_y=None, active_chunks=None):
     """Read a small spatial sample back after purge and verify disk state."""
     water = lc == S.LC["water"]
-    expected, _ = lake_surface_levels(surf_y, water, wdepth)
+    if water_surface_y is None:
+        expected, _ = lake_surface_levels(surf_y, water, wdepth)
+    else:
+        expected = np.asarray(surf_y, dtype=np.int32).copy()
+        expected[water] = np.asarray(water_surface_y, dtype=np.int32)[water]
     sx = slice(x0 - px0, x1 - px0)
     sz = slice(z0 - pz0, z1 - pz0)
     water_core = water[sx, sz]
     expected_core = expected[sx, sz]
+    active_core = np.ones(water_core.shape, dtype=bool)
+    if active_chunks is not None:
+        active_core[:] = False
+        for cx, cz in active_chunks:
+            bx0 = max(x0, cx * CHUNK) - x0
+            bx1 = min(x1, (cx + 1) * CHUNK) - x0
+            bz0 = max(z0, cz * CHUNK) - z0
+            bz1 = min(z1, (cz + 1) * CHUNK) - z0
+            if bx0 < bx1 and bz0 < bz1:
+                active_core[bx0:bx1, bz0:bz1] = True
 
     points = []
-    sample_kinds = [(water_core, "water")]
+    sample_kinds = [(water_core & active_core, "water")]
     if not lake_only:
-        sample_kinds.append((~water_core, "land"))
+        sample_kinds.append(((~water_core) & active_core, "land"))
     for mask, kind in sample_kinds:
         coords = np.argwhere(mask)
         if not len(coords):
@@ -1771,8 +2405,14 @@ def select_pending_tiles(tiles, done, max_tiles=None):
     return pending
 
 
-def paint_fingerprint():
-    """Fingerprint every input that can change a fullscale tile result."""
+def paint_fingerprint(hydrology_root=None):
+    """Fingerprint every input that can change a fullscale tile result.
+
+    ต้องแฮช product ของ **ชุดที่ใช้จริง** เดิมแฮชไฟล์ชุดเดิมตายตัว ทำให้เมื่อรัน
+    ด้วย --hydrology-root แล้วไปแก้ hydrology_global ใหม่ signature ไม่เปลี่ยน
+    --resume จึงข้าม region ต่อไปเงียบ ๆ ทั้งที่ input คนละชุดแล้ว — guard ที่มี
+    ไว้กันเรื่องนี้โดยเฉพาะกลับไม่ครอบ input ที่ paint ใช้จริง
+    """
     paths = [
         os.path.join(HERE, name) for name in (
             "paint_surface.py",
@@ -1782,13 +2422,16 @@ def paint_fingerprint():
             "config.py",
             "heightmap.png",
             "landcover.npz",
-            "water_mask.npy",
-            "water_depth.npy",
             "terrain_shape.py",
-            "terrain_y.npy",
+            # terrain_sub เป็นของ terrain_shape จึงอยู่ที่รากเสมอ
             "terrain_sub.npy",
         )
     ]
+    products = GLOBAL_PRODUCTS if hydrology_root else LEGACY_PRODUCTS
+    paths.extend(
+        os.path.join(hydrology_root or HERE, filename)
+        for filename in sorted(set(products.values()))
+    )
     tree_dir = os.path.join(HERE, "trees")
     if os.path.isdir(tree_dir):
         paths.extend(
@@ -1811,11 +2454,65 @@ def main():
             "menu before running paint_surface.py"
         )
 
+    hydro_patch = None
+    hydro_root = None
+    if "--hydrology-root" in sys.argv:
+        i = sys.argv.index("--hydrology-root")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--hydrology-root requires a directory")
+        hydro_root = os.path.abspath(sys.argv[i + 1])
+        missing = [
+            name for name in sorted(set(GLOBAL_PRODUCTS.values()))
+            if not os.path.isfile(os.path.join(hydro_root, name))
+        ]
+        if missing:
+            raise SystemExit(
+                "hydrology root is incomplete: " + ", ".join(missing)
+            )
+        print(f"[HYDROLOGY GLOBAL] {hydro_root}")
+    if "--hydrology-patch" in sys.argv:
+        i = sys.argv.index("--hydrology-patch")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--hydrology-patch requires an .npz path")
+        if "--patch" not in sys.argv:
+            raise SystemExit("--hydrology-patch is restricted to --patch runs")
+        try:
+            hydro_patch = load_hydrology_patch(sys.argv[i + 1])
+        except (FileNotFoundError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        patch_water_check = validate_water_inputs(
+            hydro_patch["water_mask"], hydro_patch["depth"]
+        )
+        if any(patch_water_check[key] for key in (
+            "water_without_depth", "nonwater_with_depth", "too_deep"
+        )):
+            raise SystemExit(
+                f"invalid hydrology patch water inputs: {patch_water_check}"
+            )
+        patch_wet = hydro_patch["water_mask"].astype(bool)
+        patch_levels = hydro_patch["surface_y"]
+        if (
+            (patch_wet & (patch_levels == np.iinfo(np.int16).min)).any()
+            or (~patch_wet & (patch_levels != np.iinfo(np.int16).min)).any()
+        ):
+            raise SystemExit(
+                "hydrology patch surface_y does not match water_mask"
+            )
+        print(f"[HYDROLOGY] overlay {os.path.abspath(sys.argv[i + 1])}")
+    if hydro_patch is not None and hydro_root is not None:
+        raise SystemExit("use only one hydrology input")
+    water_only = "--water-only" in sys.argv
+    if water_only and hydro_root is None:
+        raise SystemExit("--water-only requires --hydrology-root")
+
     early_meta = os.path.join(
         HERE,
-        "paint_progress.vegetation.meta.json"
-        if "--vegetation-only" in sys.argv
-        else "paint_progress.meta.json",
+        (
+            "paint_progress.water.meta.json" if water_only
+            else "paint_progress.vegetation.meta.json"
+            if "--vegetation-only" in sys.argv
+            else "paint_progress.meta.json"
+        ),
     )
     if (
         "--resume" in sys.argv
@@ -1834,11 +2531,17 @@ def main():
         if len(patch_args) != 3:
             raise SystemExit("--patch ต้องการ center_x center_z size")
         print("[RESET] สร้าง terrain สะอาดใน patch ก่อน paint ...")
+        reset_command = [
+            sys.executable, os.path.join(HERE, "build_terrain.py"),
+            "--patch", *patch_args,
+        ]
+        if hydro_patch is not None:
+            reset_command.extend([
+                "--hydrology-patch",
+                sys.argv[sys.argv.index("--hydrology-patch") + 1],
+            ])
         subprocess.run(
-            [
-                sys.executable, os.path.join(HERE, "build_terrain.py"),
-                "--patch", *patch_args,
-            ],
+            reset_command,
             check=True,
         )
 
@@ -1848,15 +2551,25 @@ def main():
     print("อ่าน heightmap + landcover ...")
     hm = np.asarray(Image.open(os.path.join(HERE, "heightmap.png")))  # [z, x]
     lc_all = np.load(os.path.join(HERE, "landcover.npz"))["landcover"]  # [z, x]
-    wm_path = os.path.join(HERE, "water_mask.npy")
-    wm_all = np.load(wm_path) if os.path.exists(wm_path) else None
+    # ชื่อไฟล์ของแต่ละชุดอยู่ใน hydrology_patch_io ที่เดียว — เคยเขียนไว้ที่นี่
+    # แล้ว report_metrics/render_* อ่านชุดเดิมต่อไปเงียบ ๆ จนตัวเลขกับภาพพรีวิว
+    # อธิบายคนละโลกกับที่เห็นในเกม
+    wm_path = water_product_path("water_mask", hydro_root, HERE)
+    # mmap เหมือน ty_all/wy_all ข้างล่าง — ทั้งสองตัวถูกใช้ผ่านสไลซ์ต่อ region
+    # เท่านั้น การ np.load() เต็มแผนที่จ่าย 100 MB ต่อไฟล์ไปเปล่า ๆ ตลอดทั้งรัน
+    # (ผู้บริโภคทุกรายทำ .copy() ก่อนเขียน: overlay_window, apply_water_mask)
+    wm_all = (
+        np.load(wm_path, mmap_mode="r") if os.path.exists(wm_path) else None
+    )
     if wm_all is not None and wm_all.shape != lc_all.shape:
         raise SystemExit(
             "water_mask.npy has a different shape from landcover.npz; "
             "run make_water.py again"
         )
-    wd_path = os.path.join(HERE, "water_depth.npy")
-    wd_all = np.load(wd_path) if os.path.exists(wd_path) else None
+    wd_path = water_product_path("depth", hydro_root, HERE)
+    wd_all = (
+        np.load(wd_path, mmap_mode="r") if os.path.exists(wd_path) else None
+    )
     if (wm_all is None) != (wd_all is None):
         raise SystemExit(
             "water_mask.npy and water_depth.npy must be regenerated together; "
@@ -1866,7 +2579,8 @@ def main():
         raise SystemExit(
             "water_mask.npy and water_depth.npy are required; run make_water.py"
         )
-    ty_path = os.path.join(HERE, "terrain_y.npy")
+    ty_path = water_product_path("terrain_y", hydro_root, HERE)
+    # terrain_sub เป็นของ terrain_shape ไม่ใช่ของ hydrology จึงอยู่ที่รากเสมอ
     tsub_path = os.path.join(HERE, "terrain_sub.npy")
     if not (os.path.exists(ty_path) and os.path.exists(tsub_path)):
         raise SystemExit(
@@ -1878,6 +2592,61 @@ def main():
         raise SystemExit(
             "terrain_y.npy มีขนาดไม่ตรงกับ landcover.npz; "
             "รัน terrain_shape.py ใหม่"
+        )
+    wy_path = water_product_path("surface_y", hydro_root, HERE)
+    wl_path = water_product_path("standing_water_mask", hydro_root, HERE)
+    if not (os.path.exists(wy_path) and os.path.exists(wl_path)):
+        raise SystemExit(
+            "ไม่พบ water_surface_y.npy / water_lake_mask.npy — "
+            "รัน make_water_levels.py หลัง terrain_shape.py"
+        )
+    wy_all = np.load(wy_path, mmap_mode="r")
+    wl_all = np.load(wl_path, mmap_mode="r")
+    # In global hydrology, flowing water is every wet cell that was not
+    # classified as a level standing basin. This includes sloped
+    # natural=water polygons as well as explicit waterway lines.
+    global_flowing = hydro_root is not None
+    global_waterfall_top = (
+        np.load(os.path.join(hydro_root, "waterfall_top_y.npy"), mmap_mode="r")
+        if hydro_root else None
+    )
+    global_waterfall_lip = (
+        np.load(
+            os.path.join(hydro_root, "waterfall_lip_mask.npy"), mmap_mode="r"
+        )
+        if hydro_root else None
+    )
+    global_waterfall_pool = (
+        np.load(
+            os.path.join(hydro_root, "waterfall_pool_mask.npy"), mmap_mode="r"
+        )
+        if hydro_root else None
+    )
+    affected_chunks = (
+        np.load(os.path.join(hydro_root, "affected_chunks.npy"), mmap_mode="r")
+        if hydro_root and "--water-only" in sys.argv else None
+    )
+    if wy_all.shape != lc_all.shape or wl_all.shape != lc_all.shape:
+        raise SystemExit(
+            "water level products มีขนาดไม่ตรงกับ landcover.npz; "
+            "รัน make_water_levels.py ใหม่"
+        )
+    water_level_check = False
+    unresolved_water_y = np.iinfo(np.int16).min
+    for row0 in range(0, wm_all.shape[0], 512):
+        row1 = min(wm_all.shape[0], row0 + 512)
+        wet = np.asarray(wm_all[row0:row1], dtype=bool)
+        levels = np.asarray(wy_all[row0:row1])
+        if (
+            (wet & (levels == unresolved_water_y)).any()
+            or (~wet & (levels != unresolved_water_y)).any()
+        ):
+            water_level_check = True
+            break
+    if water_level_check:
+        raise SystemExit(
+            "water_surface_y.npy ไม่ตรงกับ water_mask.npy; "
+            "รัน make_water_levels.py ใหม่"
         )
 
     water_inputs = validate_water_inputs(wm_all, wd_all)
@@ -1891,6 +2660,25 @@ def main():
     n = hm.shape[0]
 
     patch = None
+    # คิว fluid tick ให้วานิลลาประมวลผลน้ำตอนโหลด chunk — **เปิดโดยค่าเริ่มต้น**
+    #
+    # เจตนาคือให้น้ำไหลตาม logic ของเกม ไม่ใช่ก้อน source นิ่ง ๆ ซึ่งได้ภาพ
+    # สวยกว่ามาก  แต่มันบังคับว่าน้ำที่เราวางต้อง **อยู่ในสมดุลของกฎน้ำวานิลลา
+    # อยู่แล้ว** ไม่งั้นเกมจะจัดระเบียบให้เองแล้วผลลัพธ์ต่างจากที่คำนวณไว้:
+    #   1. cell น้ำที่ติดกันแต่ผิวต่างกัน 1 บล็อก -> ฝั่งสูงแผ่เข้าไปในอากาศเหนือ
+    #      ฝั่งต่ำ เกิดลิ้นน้ำไหลยาวได้ถึง 7 บล็อก และยาวไม่เท่ากันสองฝั่ง
+    #   2. บนผืนน้ำกว้าง flowing ที่มี source ข้าง ๆ >=2 ตัวกลายเป็น source ใหม่
+    #      (กฎ infinite water) ระดับน้ำถูกยกขึ้นถาวรเป็นบริเวณกว้าง
+    # วัดจากโลกจริงแล้วเจอทั้งสองอย่าง: water[level=3] ที่ (2283,84,3170) และ
+    # source ที่ y=22 บนคอลัมน์ที่ทุก build บอกว่า surface=21
+    #
+    # และมันย้อนกลับไม่ได้ด้วยการ paint ทับ เพราะ paint เขียนแค่ช่วง y_lo..y_hi
+    # ที่คำนวณจากผิวน้ำ *ใหม่* บล็อกที่ปนเปื้อนอยู่สูงกว่านั้นไม่เคยถูกแตะ
+    # ต้องลบ chunk แล้วสร้างใหม่เท่านั้น
+    #
+    # `--no-fluid-ticks` ใช้ตอนวินิจฉัย: paint แล้วเปิดดูโดยที่โลกยังเป็นสิ่งที่
+    # เราคำนวณไว้เป๊ะ ๆ เพื่อแยกว่าอะไรคือบั๊กของเรา อะไรคือผลของกฎน้ำวานิลลา
+    fluid_ticks = "--no-fluid-ticks" not in sys.argv
     terrain_only = "--terrain-only" in sys.argv
     lake_only = "--lake-only" in sys.argv
     vegetation_only = "--vegetation-only" in sys.argv
@@ -1918,14 +2706,22 @@ def main():
     if wd_all is not None:
         if patch:
             qx0, qx1, qz0, qz1 = patch
+            check_water = wm_all[qz0:qz1, qx0:qx1]
+            check_depth = wd_all[qz0:qz1, qx0:qx1]
+            if hydro_patch is not None:
+                check_water = overlay_window(
+                    check_water, hydro_patch, "water_mask",
+                    qx0, qx1, qz0, qz1,
+                )
+                check_depth = overlay_window(
+                    check_depth, hydro_patch, "depth",
+                    qx0, qx1, qz0, qz1,
+                )
             water_check = water_depth_preflight(
                 hm[qz0:qz1, qx0:qx1],
                 lc_all[qz0:qz1, qx0:qx1],
-                wd_all[qz0:qz1, qx0:qx1],
-                water_mask=(
-                    wm_all[qz0:qz1, qx0:qx1]
-                    if wm_all is not None else None
-                ),
+                check_depth,
+                water_mask=check_water,
             )
         else:
             water_check = water_depth_preflight(
@@ -1947,12 +2743,16 @@ def main():
     # checkpoint แยกไฟล์ต่อโหมด — ถ้าใช้ไฟล์เดียวกัน การรัน --vegetation-only
     # ทั้งแผนที่จะมาร์ค tile ว่าเสร็จ แล้ว --resume ของ paint เต็มจะข้าม tile
     # ที่ยังไม่มีผิวดิน/น้ำ
-    suffix = ".vegetation" if vegetation_only else ""
+    suffix = (
+        ".water" if water_only
+        else ".vegetation" if vegetation_only
+        else ""
+    )
     done_file = os.path.join(HERE, f"paint_progress{suffix}.txt")
     meta_file = os.path.join(HERE, f"paint_progress{suffix}.meta.json")
     done = set()
     if patch is None:
-        signature = paint_fingerprint()
+        signature = paint_fingerprint(hydro_root)
         if "--resume" in sys.argv:
             metadata = load_progress_metadata(meta_file)
             if not os.path.exists(done_file) or metadata is None:
@@ -2001,6 +2801,18 @@ def main():
         rb = RSIZE * CHUNK
         tiles = [(x, min(x + rb, n), z, min(z + rb, n))
                  for x in range(0, n, rb) for z in range(0, n, rb)]
+    if affected_chunks is not None:
+        tiles = [
+            tile for tile in tiles
+            if np.asarray(affected_chunks[
+                tile[2] // CHUNK:(tile[3] + CHUNK - 1) // CHUNK,
+                tile[0] // CHUNK:(tile[1] + CHUNK - 1) // CHUNK,
+            ]).any()
+        ]
+        print(
+            f"[WATER ONLY] {int(np.asarray(affected_chunks).sum()):,} chunks "
+            f"in {len(tiles):,} paint regions"
+        )
     max_tiles = None
     if "--max-tiles" in sys.argv:
         max_tiles = int(sys.argv[sys.argv.index("--max-tiles") + 1])
@@ -2023,18 +2835,102 @@ def main():
         # ระดับผิวดินต้องมาจาก terrain_y.npy ตัวเดียวกับที่ build_terrain ใช้
         # ไม่ใช่คำนวณซ้ำจาก heightmap — dither ใน terrain_shape.py ทำให้สองสูตร
         # ให้คนละคำตอบ แล้วผิวดินจะไม่ตรงกับหินที่ถมไว้
-        surf_y = ty_all[az0:az1, ax0:ax1].T.astype(np.int32)
+        terrain_slice = ty_all[az0:az1, ax0:ax1]
+        water_slice = wm_all[az0:az1, ax0:ax1]
+        depth_slice = wd_all[az0:az1, ax0:ax1]
+        level_slice = wy_all[az0:az1, ax0:ax1]
+        lake_slice = wl_all[az0:az1, ax0:ax1]
+        waterfall_top_slice = (
+            global_waterfall_top[az0:az1, ax0:ax1]
+            if global_waterfall_top is not None
+            else np.full(
+                level_slice.shape, np.iinfo(np.int16).min, dtype=np.int16
+            )
+        )
+        waterfall_lip_slice = (
+            global_waterfall_lip[az0:az1, ax0:ax1]
+            if global_waterfall_lip is not None
+            else np.zeros(level_slice.shape, dtype=bool)
+        )
+        waterfall_pool_slice = (
+            global_waterfall_pool[az0:az1, ax0:ax1]
+            if global_waterfall_pool is not None
+            else np.zeros(level_slice.shape, dtype=bool)
+        )
+        flowing_water_slice = (
+            np.asarray(water_slice, dtype=bool)
+            & ~np.asarray(lake_slice, dtype=bool)
+            if global_flowing
+            else np.zeros(level_slice.shape, dtype=bool)
+        )
+        if hydro_patch is not None:
+            terrain_slice = overlay_window(
+                terrain_slice, hydro_patch, "terrain_y",
+                ax0, ax1, az0, az1,
+            )
+            water_slice = overlay_window(
+                water_slice, hydro_patch, "water_mask",
+                ax0, ax1, az0, az1,
+            )
+            depth_slice = overlay_window(
+                depth_slice, hydro_patch, "depth",
+                ax0, ax1, az0, az1,
+            )
+            level_slice = overlay_window(
+                level_slice, hydro_patch, "surface_y",
+                ax0, ax1, az0, az1,
+            )
+            lake_slice = overlay_window(
+                lake_slice, hydro_patch, "standing_water_mask",
+                ax0, ax1, az0, az1,
+            )
+            if "waterfall_top_y" in hydro_patch.files:
+                waterfall_top_slice = overlay_window(
+                    waterfall_top_slice, hydro_patch, "waterfall_top_y",
+                    ax0, ax1, az0, az1,
+                )
+            if "waterfall_lip_mask" in hydro_patch.files:
+                waterfall_lip_slice = overlay_window(
+                    waterfall_lip_slice, hydro_patch,
+                    "waterfall_lip_mask", ax0, ax1, az0, az1,
+                )
+            if "waterfall_pool_mask" in hydro_patch.files:
+                waterfall_pool_slice = overlay_window(
+                    waterfall_pool_slice, hydro_patch,
+                    "waterfall_pool_mask", ax0, ax1, az0, az1,
+                )
+            if "waterway_mask" in hydro_patch.files:
+                flowing_water_slice = overlay_window(
+                    flowing_water_slice, hydro_patch, "waterway_mask",
+                    ax0, ax1, az0, az1,
+                )
+            # Patch standing/flowing classification is authoritative after all
+            # overlays; do not leave sloped waterbody cells unscheduled.
+            flowing_water_slice = (
+                np.asarray(water_slice, dtype=bool)
+                & ~np.asarray(lake_slice, dtype=bool)
+            )
+        surf_y = terrain_slice.T.astype(np.int32)
         terrain_offset = (
             tsub_all[az0:az1, ax0:ax1].T.astype(np.float32) / 127.0
         )
         lc_source = lc_all[az0:az1, ax0:ax1]
         if wm_all is not None:
             lc_source = S.apply_water_mask(
-                lc_source, wm_all[az0:az1, ax0:ax1]
+                lc_source, water_slice
             )
         lc = lc_source.T
-        wdepth = (wd_all[az0:az1, ax0:ax1].T if wd_all is not None
-                  else np.zeros_like(lc))
+        wdepth = depth_slice.T
+        water_surface_y = level_slice.T
+        global_lake_mask = lake_slice.T
+        active_chunk_set = None
+        if affected_chunks is not None:
+            active_chunk_set = {
+                (cx, cz)
+                for cz in range(z0 // CHUNK, (z1 + CHUNK - 1) // CHUNK)
+                for cx in range(x0 // CHUNK, (x1 + CHUNK - 1) // CHUNK)
+                if bool(affected_chunks[cz, cx])
+            }
 
         total_chunks += process_region(
             level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1, stats, ax0, az0,
@@ -2043,7 +2939,25 @@ def main():
             lake_only=lake_only,
             vegetation_only=vegetation_only,
             terrain_sub=terrain_offset,
+            water_surface_y=water_surface_y,
+            global_lake_mask=global_lake_mask,
+            waterfall_top_y=waterfall_top_slice.T,
+            waterfall_lip_mask=waterfall_lip_slice.T,
+            waterfall_pool_mask=waterfall_pool_slice.T,
+            flowing_water_mask=flowing_water_slice.T,
+            active_chunks=active_chunk_set,
         )
+        # คิว fluid tick เป็นตัวเลือก ไม่ใช่ค่าเริ่มต้น — ดู --fluid-ticks
+        if fluid_ticks and (hydro_patch is not None or hydro_root is not None):
+            stats["fluid_ticks"] = stats.get("fluid_ticks", 0) + (
+                schedule_source_water_ticks(
+                    level,
+                    water_surface_y,
+                    flowing_water_slice.T,
+                    waterfall_top_slice.T,
+                    x0, x1, z0, z1, ax0, az0,
+                )
+            )
 
         level.save()
         level.purge()
@@ -2051,6 +2965,8 @@ def main():
             checked = validate_saved_tile(
                 level, surf_y, lc, wdepth, x0, x1, z0, z1, ax0, az0,
                 lake_only=lake_only,
+                water_surface_y=water_surface_y,
+                active_chunks=active_chunk_set,
             )
             stats["validated_samples"] = (
                 stats.get("validated_samples", 0) + checked
@@ -2063,16 +2979,21 @@ def main():
 
         pct = i / len(tiles)
         el = time.time() - t0
+        # paint fullscale ใช้เวลาหลายชั่วโมง ตัวเลข RAM จริงจึงสำคัญกว่าที่
+        # build_terrain — chunk cache ของ amulet คือตัวกินหลัก ไม่ใช่ numpy
+        used = working_set_mb()
         sys.stdout.write(
             f"\r{i}/{len(tiles)} ({pct:5.1%})  chunks {total_chunks:,}  "
             f"ต้นไม้ {stats['trees']:,}  พืช {stats['plants']:,}  "
-            f"ETA {(el/pct - el)/60:5.1f} นาที   "
+            f"ETA {(el/pct - el)/60:5.1f} นาที"
+            + (f"  RAM {used:,.0f}MB" if used else "") + "   "
         )
         sys.stdout.flush()
 
     print(f"\nเสร็จ — {total_chunks:,} chunks, ต้นไม้ {stats['trees']:,}, "
           f"พืช {stats['plants']:,}, ตกแต่ง {stats.get('decor',0):,}, "
           f"ใต้น้ำ {stats.get('underwater_decor',0):,}, "
+          f"fluid ticks {stats.get('fluid_ticks',0):,}, "
           f"หิมะ {stats['snow']:,} "
           f"ใน {(time.time()-t0)/60:.1f} นาที")
     if stats.get("cleared"):

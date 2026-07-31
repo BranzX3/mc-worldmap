@@ -55,6 +55,8 @@ class _Painter:
     air = 0
     # slab ต่อบล็อกผิว — 0 = ไม่มี slab สำหรับบล็อกนั้น
     slab_ids = np.where(S.HAS_SLAB, 700 + np.arange(len(S.KEYS)), 0).astype(np.uint32)
+    cliff_face = [800, 801, 802, 803, 804, 805, 806, 807]
+    reed = 808
 
     @staticmethod
     def is_air(block_id):
@@ -331,6 +333,58 @@ class PaintSurfaceTests(unittest.TestCase):
                 tile_mask, full_mask[13:87, 19:101]
             )
 
+    def test_lilies_are_sparse_but_present_in_sheltered_mud(self):
+        shape = (512, 512)
+        depth = np.ones(shape, dtype=np.int32)
+        bed_kind = np.full(shape, P.LAKEBED["mud"], dtype=np.uint8)
+        relief = np.zeros(shape, dtype=np.int32)
+
+        _short, _tall, lily = P.aquatic_vegetation_masks(
+            depth, bed_kind, relief, x0=2200, z0=4100
+        )
+
+        self.assertTrue(lily.any())
+        self.assertLess(float(lily.mean()), 0.02)
+
+    def test_riparian_reeds_only_grow_beside_shallow_water(self):
+        shape = (256, 256)
+        water = np.zeros(shape, dtype=bool)
+        water[:, 80:176] = True
+        depth = np.zeros(shape, dtype=np.uint8)
+        depth[:, 80] = 1
+        depth[:, 81:175] = 8
+        depth[:, 175] = 2
+        ground = ~water
+
+        reeds = P.riparian_reed_heights(
+            water, depth, ground, x0=600, z0=900
+        )
+
+        self.assertTrue(reeds.any())
+        self.assertFalse(reeds[water].any())
+        self.assertFalse(reeds[:, :78].any())
+        self.assertFalse(reeds[:, 178:].any())
+        self.assertLessEqual(int(reeds.max()), 3)
+
+    def test_riparian_reeds_are_world_coordinate_invariant(self):
+        water = np.zeros((100, 120), dtype=bool)
+        water[20:80, 45:75] = True
+        depth = water.astype(np.uint8)
+        ground = ~water
+
+        full = P.riparian_reed_heights(
+            water, depth, ground, x0=500, z0=800
+        )
+        tile = P.riparian_reed_heights(
+            water[13:87, 19:101],
+            depth[13:87, 19:101],
+            ground[13:87, 19:101],
+            x0=513,
+            z0=819,
+        )
+
+        np.testing.assert_array_equal(tile, full[13:87, 19:101])
+
     def test_lake_shore_search_reaches_across_shallow_shelf(self):
         water = np.zeros((64, 64), dtype=bool)
         water[12:52, 12:52] = True
@@ -344,6 +398,79 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertTrue(outside_shore.any())
         self.assertTrue(outside_shore[11, 32])
 
+    def test_fine_sediment_disappears_above_the_treeline(self):
+        """ทะเลสาบเหนือแนวไม้ต้องไม่มีทราย/ดินเหนียว/โคลนที่ก้น
+
+        แอ่งน้ำเหนือแนวไม้เป็นน้ำแข็งละลายบนหินเปล่า ไม่มีตะกอนละเอียดสะสม
+        เดิมเลือกวัสดุจาก depth กับ noise ล้วน ๆ ทะเลสาบที่ 2,000 ม. จึงได้ก้น
+        ทรายเหมือนทะเลสาบในหุบเขา — เห็นเป็นหาดทรายกลางลานหิน
+        """
+        depth = np.full((40, 40), 8, dtype=np.int32)
+        relief = np.zeros((40, 40), dtype=np.int32)
+        lake = np.ones((40, 40), dtype=bool)
+        fine = np.asarray(
+            [P.LAKEBED[n] for n in ("sand", "clay", "mud")], dtype=np.uint8
+        )
+
+        valley = P.lakebed_materials(
+            depth, relief, lake, x0=500, z0=900,
+            elev_m=np.full((40, 40), 800.0, dtype=np.float32),
+        )
+        alpine = P.lakebed_materials(
+            depth, relief, lake, x0=500, z0=900,
+            elev_m=np.full((40, 40), S.TREELINE + 250, dtype=np.float32),
+        )
+
+        self.assertTrue(np.isin(valley, fine).any(), "หุบเขาควรมีตะกอนละเอียด")
+        self.assertFalse(
+            np.isin(alpine, fine).any(),
+            "เหนือแนวไม้ยังมีทราย/ดินเหนียว/โคลนที่ก้นน้ำ",
+        )
+        # ไม่ระบุความสูงต้องได้พฤติกรรมเดิม เพื่อไม่ให้ผู้เรียกเก่าเปลี่ยนผล
+        legacy = P.lakebed_materials(depth, relief, lake, x0=500, z0=900)
+        np.testing.assert_array_equal(legacy, valley)
+
+    def test_shore_probabilities_only_read_nearby_input(self):
+        """ค่าที่ cell ใด ๆ ต้องขึ้นกับ input ในรัศมี reach เท่านั้น
+
+        `report_metrics.bank_metrics` อาศัยคุณสมบัตินี้ในการแบ่ง tile + pad
+        แทนการกาง float32 เต็มแผนที่สองชุด ถ้ามีใครเพิ่มกฎที่มองไกลกว่า
+        `max(shore_width, LAKE_SHORE_SEARCH_BLOCKS)` การแบ่ง tile จะให้ตัวเลขคนละชุด
+        กับการคำนวณทีเดียวทั้งแผนที่ โดยไม่มีอะไรฟ้อง
+        """
+        shore_width = 4
+        reach = max(shore_width, int(getattr(C, "LAKE_SHORE_SEARCH_BLOCKS", 12)))
+        # ทะเลสาบลึกวางไว้ *นอก* หน้าต่างแต่ใกล้พอให้ความลึกแพร่เข้ามา — ถ้า
+        # หน้าต่างไม่มี pad มันจะมองไม่เห็นทะเลสาบเลย แล้วตลิ่งช่วงบนของลำธาร
+        # จะถูกจัดเป็น stream_bank แทน lake_shore
+        #
+        # ลำธารตื้นพาดผ่านทั้งหน้าต่างจึงมีทั้งสองสาขาอยู่ในภาพเดียว: ช่วงที่ยัง
+        # อยู่ในรัศมีทะเลสาบได้ lake_shore ส่วนช่วงล่างได้ stream_bank
+        # (สองค่านี้ตัดกันเสมอ — stream_bank เป็นบวกได้เฉพาะที่ lake_body == 0)
+        water = np.zeros((80, 80), dtype=bool)
+        depth = np.zeros((80, 80), dtype=np.uint8)
+        water[14:26, 30:50] = True
+        depth[14:26, 30:50] = 12
+        water[26:60, 40] = True
+        depth[26:60, 40] = 1
+
+        full = S.shore_probabilities(
+            water, depth, shore_width=shore_width, search_blocks=reach
+        )
+
+        z0, z1, x0, x1 = 30, 54, 20, 60
+        pz0, pz1 = z0 - reach, z1 + reach
+        px0, px1 = x0 - reach, x1 + reach
+        windowed = S.shore_probabilities(
+            water[pz0:pz1, px0:px1], depth[pz0:pz1, px0:px1],
+            shore_width=shore_width, search_blocks=reach,
+        )
+        inner = np.s_[z0 - pz0:z1 - pz0, x0 - px0:x1 - px0]
+
+        for got, want in zip(windowed, full):
+            self.assertTrue(want[z0:z1, x0:x1].any())
+            np.testing.assert_array_equal(got[inner], want[z0:z1, x0:x1])
+
     def test_shallow_stream_has_bank_probability(self):
         water = np.zeros((24, 24), dtype=bool)
         water[12, :] = True
@@ -355,6 +482,100 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertTrue(bank[11, 12] > 0.0)
         self.assertTrue(bank[10, 12] > 0.0)
         self.assertFalse(bank[12, 12])
+
+    def test_cliff_face_depth_uses_lowest_cardinal_neighbour(self):
+        height = np.full((5, 5), 20, dtype=np.int32)
+        height[2, 2] = 28
+        height[2, 1] = 25
+        height[1, 2] = 18
+
+        depth = P.cliff_face_depths(height)
+
+        self.assertEqual(int(depth[2, 2]), 10)
+        self.assertEqual(int(depth[2, 1]), 5)
+        self.assertEqual(int(depth[0, 0]), 0)
+
+    def test_cliff_face_depth_ignores_single_block_step(self):
+        height = np.array([[10, 11], [10, 11]], dtype=np.int32)
+
+        self.assertFalse(P.cliff_face_depths(height).any())
+
+    def test_contextual_blend_uses_neighbour_material_majority(self):
+        cls = np.full((7, 7), S.IDX["stone"], dtype=np.uint8)
+        cls[3, 3] = S.IDX["andesite"]
+        damp = np.zeros(cls.shape, dtype=np.float32)
+        slope = np.full(cls.shape, 50.0, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, damp, slope)
+
+        self.assertEqual(int(got[3, 3]), S.IDX["stone"])
+
+    def test_contextual_blend_rejects_incompatible_bedrock_jump(self):
+        cls = np.full((7, 7), S.IDX["deepslate"], dtype=np.uint8)
+        cls[3, 3] = S.IDX["calcite"]
+        fields = np.zeros(cls.shape, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, fields, fields)
+
+        self.assertEqual(int(got[3, 3]), S.IDX["calcite"])
+
+    def test_contextual_blend_accepts_adjacent_bedrock_step(self):
+        cls = np.full((7, 7), S.IDX["diorite"], dtype=np.uint8)
+        cls[3, 3] = S.IDX["calcite"]
+        fields = np.zeros(cls.shape, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, fields, fields)
+
+        self.assertEqual(int(got[3, 3]), S.IDX["diorite"])
+
+    def test_contextual_blend_creates_soil_rock_transition_family(self):
+        cls = np.full((7, 7), S.IDX["grass"], dtype=np.uint8)
+        cls[:, 4:] = S.IDX["stone"]
+        damp = np.full(cls.shape, 0.7, dtype=np.float32)
+        slope = np.full(cls.shape, 20.0, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, damp, slope)
+        transition = got[:, 3:5]
+        allowed = {
+            S.IDX[k] for k in (
+                "coarse", "gravel", "moss", "mossy_cob", "stone",
+            )
+        }
+
+        self.assertTrue(set(map(int, np.unique(transition))) <= allowed)
+
+    def test_light_bedrock_edge_uses_light_transition_materials(self):
+        cls = np.full((7, 7), S.IDX["grass"], dtype=np.uint8)
+        cls[:, 4:] = S.IDX["calcite"]
+        damp = np.full(cls.shape, 0.75, dtype=np.float32)
+        slope = np.full(cls.shape, 20.0, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, damp, slope)
+        allowed = {
+            S.IDX[k] for k in (
+                "coarse", "gravel", "moss", "pale_moss", "diorite",
+            )
+        }
+
+        self.assertTrue(set(map(int, np.unique(got[:, 3:5]))) <= allowed)
+
+    def test_artificial_smooth_and_basalt_are_not_geologic_family(self):
+        self.assertNotIn(S.IDX["smooth"], P._GEOLOGIC_TRANSITION_IDS)
+        self.assertNotIn(S.IDX["basalt"], P._GEOLOGIC_TRANSITION_IDS)
+
+    def test_dead_brain_coral_is_weathering_not_bedrock(self):
+        self.assertIn(S.IDX["dead_brain"], P._GEOLOGIC_TRANSITION_IDS)
+        self.assertNotIn(S.IDX["dead_brain"], P._BEDROCK_IDS)
+        self.assertFalse(S.HAS_SLAB[S.IDX["dead_brain"]])
+
+    def test_contextual_blend_preserves_water(self):
+        cls = np.full((5, 5), S.IDX["stone"], dtype=np.uint8)
+        cls[2, 2] = S.IDX["water"]
+        fields = np.zeros(cls.shape, dtype=np.float32)
+
+        got = P.contextual_surface_blend(cls, fields, fields)
+
+        self.assertEqual(int(got[2, 2]), S.IDX["water"])
 
     def test_deep_lake_does_not_also_get_stream_bank(self):
         water = np.zeros((40, 40), dtype=bool)
@@ -421,6 +642,50 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertEqual(result["too_deep"], 1)
         self.assertEqual(result["max_depth"], 31)
 
+    def test_source_water_ticks_cover_stream_surface_and_curtain(self):
+        class TickChunk:
+            def __init__(self):
+                self.misc = {}
+                self.changed = False
+
+        class TickLevel:
+            def __init__(self):
+                self.chunk = TickChunk()
+                self.put = []
+
+            def get_chunk(self, _cx, _cz, _dimension):
+                return self.chunk
+
+            def put_chunk(self, chunk, dimension):
+                self.put.append((chunk, dimension))
+
+        level = TickLevel()
+        surface = np.full((2, 2), 60, dtype=np.int16)
+        flowing = np.array([[True, False], [False, True]])
+        top = np.full((2, 2), np.iinfo(np.int16).min, dtype=np.int16)
+        top[0, 0] = 63
+
+        queued = P.schedule_source_water_ticks(
+            level, surface, flowing, top,
+            10, 12, 20, 22, 10, 20, dimension="test",
+        )
+
+        self.assertEqual(queued, 5)
+        self.assertTrue(level.chunk.changed)
+        self.assertEqual(len(level.put), 1)
+        ticks = level.chunk.misc["fluid_ticks"]
+        self.assertEqual(
+            set(ticks),
+            {
+                (10, 60, 20), (10, 61, 20), (10, 62, 20),
+                (10, 63, 20), (11, 60, 21),
+            },
+        )
+        self.assertTrue(all(
+            fluid == "minecraft:water" and 1 <= delay <= 4 and priority == 0
+            for fluid, delay, priority in ticks.values()
+        ))
+
     def test_derived_water_mask_maps_eroded_edge_to_wetland(self):
         landcover = np.array([
             [S.LC["water"], S.LC["grass"]],
@@ -485,6 +750,60 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertEqual(int(chunk.blocks[9, 61, 0]), painter.snow_layers[3])
         self.assertIn(int(chunk.blocks[13, 59, 0]), painter.sub_soil)
 
+    def test_dense_chunk_paints_only_declared_waterfall_curtain(self):
+        painter = _Painter()
+        n = 16
+        y = np.full((n, n), 60, dtype=np.int32)
+        elev = np.full((n, n), 800.0, dtype=np.float32)
+        classes = np.full((n, n), S.IDX["grass"], dtype=np.uint8)
+        classes[0, 0] = S.IDX["water"]
+        snow = np.zeros((n, n), dtype=np.uint8)
+        soil = classes == S.IDX["grass"]
+        depth = np.zeros((n, n), dtype=np.uint8)
+        depth[0, 0] = 1
+        shore = np.zeros((n, n), dtype=bool)
+        shore_probability = np.zeros((n, n), dtype=np.float32)
+        decor = {
+            "patch_a": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_b": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_c": np.full((n, n), 0.5, dtype=np.float32),
+            "damp": np.full((n, n), 0.4, dtype=np.float32),
+            "slope": np.full((n, n), 5.0, dtype=np.float32),
+        }
+        water_surface = np.full((n, n), 60, dtype=np.int16)
+        waterfall_top = np.full(
+            (n, n), np.iinfo(np.int16).min, dtype=np.int16
+        )
+        waterfall_top[0, 0] = 64
+        waterfall_lip = np.zeros((n, n), dtype=bool)
+        waterfall_pool = np.zeros((n, n), dtype=bool)
+        waterfall_pool[0, 0] = True
+        flowing_water = np.zeros((n, n), dtype=bool)
+        flowing_water[0, 0] = True
+
+        dense = P.prepare_dense_fields(
+            painter, y, elev, classes, snow, soil, depth,
+            shore, shore_probability, decor,
+            0, n, 0, n, 0, 0,
+            water_surface_y=water_surface,
+            global_lake_mask=np.zeros((n, n), dtype=bool),
+            waterfall_top_y=waterfall_top,
+            waterfall_lip_mask=waterfall_lip,
+            waterfall_pool_mask=waterfall_pool,
+            flowing_water_mask=flowing_water,
+        )
+        chunk = _Chunk()
+        P.paint_dense_chunks(
+            painter, lambda _cx, _cz: chunk, dense, 0, n, 0, n
+        )
+
+        for block_y in range(60, 65):
+            self.assertEqual(
+                int(chunk.blocks[0, block_y, 0]), painter.water
+            )
+        self.assertNotEqual(int(chunk.blocks[0, 65, 0]), painter.water)
+        self.assertEqual(int(dense["bed_id"][0, 0]), painter.bed_stone)
+
     def test_lake_only_dense_paint_leaves_land_columns_untouched(self):
         painter = _Painter()
         n = 16
@@ -526,7 +845,7 @@ class PaintSurfaceTests(unittest.TestCase):
         )
         self.assertEqual(
             int(chunk.blocks[0, int(dense["bed_y"][0, 8]) - 1, 8]),
-            painter.stone,
+            77,
         )
 
     def test_repaint_backfills_old_water_cavity_below_new_lakebed(self):

@@ -51,17 +51,47 @@ PREVIEW_GRASS = np.asarray([_rgb(b[2]) for b in BIOMES], dtype=np.uint8)
 PREVIEW_WATER = np.asarray([_rgb(b[4]) for b in BIOMES], dtype=np.uint8)
 
 
+# ---------------------------------------------------------- สีหมอกใต้น้ำ
+# `water_color` เป็นสีที่เห็นจาก *นอก* น้ำ ส่วนสิ่งที่เห็นตอนดำลงไปคือ
+# `water_fog_color` ซึ่งเป็นคนละค่าและเดิมไม่ได้ตั้งไว้เลย จึงตกไปใช้ค่าวานิลลา
+# (#050533 น้ำเงินเข้มเกือบดำ) ทะเลสาบธารน้ำแข็งจึงขุ่นเหมือนมหาสมุทรวานิลลา
+#
+# ตำแหน่งในไฟล์สำคัญ: ตรวจจาก client jar 26.2 แล้วว่า water_fog_color ย้ายไปอยู่
+# ใต้ `attributes` เป็น `minecraft:visual/water_fog_color` (เหมือน sky_color)
+# ไม่ใช่ใน `effects` แบบเวอร์ชันเก่า — ถ้าใส่ผิดที่ เกมจะเมินเงียบ ๆ
+# ตัวอย่างวานิลลาที่ยืนยัน: cherry_grove #5db7ef, swamp #232317
+WATER_FOG = {
+    "valley": "#2a7c9b", "montane": "#2a7c9b", "subalpine": "#2a7c9b",
+    "alpine": "#2f88a6", "peak": "#2f88a6",
+    # ทะเลสาบหินปูนลึก — ฟ้าอมเขียวจากผงหินละเอียด ใสแต่เข้มขึ้นตามความลึก
+    "lake": "#1f6b8c",
+    # ลำธารตื้นบนกรวด — สว่างกว่าเพราะแสงทะลุถึงพื้นและสะท้อนกลับ
+    "stream": "#3f96b4",
+}
+
+# ระยะที่หมอกใต้น้ำทึบสนิท — ตัวคูณจากค่าวานิลลา
+# วานิลลาใช้ modifier "multiply" (swamp ใช้ 0.85 ให้ขุ่นกว่าปกติ) น้ำเทือกเขา
+# แอลป์ใสกว่าค่ากลาง จึงมองได้ไกลกว่า
+WATER_FOG_DISTANCE = {"lake": 1.35, "stream": 1.25}
+
+
 # ---------------------------------------------------------- การเลือก biome
 # เส้นแบ่งต้องเป็นชุดเดียวกับที่ surface.classify() ใช้ขยับแนวไม้ ไม่งั้นขอบสี
 # biome จะไม่ตรงกับขอบพืชพรรณที่วาดไว้ แล้วจะเห็นเป็นแถบสีผิดที่
 def biome_index(elev_m, water, depth, treeline=None, montane=None,
-                subalpine=None):
+                subalpine=None, standing=None):
     """คืน index เข้า KEYS ต่อพิกเซล
 
     elev_m   ความสูงจริง (m)
     water    mask ผืนน้ำ
-    depth    ความลึกน้ำ (บล็อก) — ใช้แยกทะเลสาบจากลำธาร
+    depth    ความลึกน้ำ (บล็อก) — ใช้แยกทะเลสาบจากลำธาร *เมื่อไม่มี* standing
+    standing mask น้ำนิ่งจาก hydrology — ตัวจำแนกที่ถูกต้อง ถ้ามีให้ใช้ตัวนี้
     treeline ความสูงแนวไม้ต่อพิกเซล (ถ้าไม่ให้ใช้ค่าคงที่ของ surface.py)
+
+    ทำไมต้องมี ``standing``: เกณฑ์ ``depth >= 3`` เป็นตัวแทนที่ผิด เพราะ
+    hydrology ให้ความลึก 3 กับ *แม่น้ำ* ตามชนิด ไม่ใช่ตามว่านิ่งหรือไหล วัดจาก
+    ผังเต็ม: แม่น้ำ 189,354 cell ได้สีน้ำของทะเลสาบ และทะเลสาบตื้น 141,982 cell
+    ได้สีของลำธาร — เห็นเป็นวงสีอ่อนรอบขอบทะเลสาบทุกแห่งที่เส้น depth=3
     """
     import surface as S
 
@@ -81,9 +111,15 @@ def biome_index(elev_m, water, depth, treeline=None, montane=None,
     out[elev_m > treeline] = IDX["alpine"]
     out[elev_m > treeline + 350.0] = IDX["peak"]
 
-    # น้ำทับท้ายสุด — ทะเลสาบลึกได้สีเข้ม ลำธารตื้นได้สีใสกว่า
+    # น้ำทับท้ายสุด — น้ำนิ่งได้สีเข้ม น้ำไหลได้สีใสกว่า
     out[water] = IDX["stream"]
-    out[water & (depth >= 3)] = IDX["lake"]
+    if standing is None:
+        out[water & (depth >= 3)] = IDX["lake"]
+    else:
+        standing = np.asarray(standing, dtype=bool)
+        if standing.shape != elev_m.shape:
+            raise ValueError("standing and elev_m must have the same shape")
+        out[water & standing] = IDX["lake"]
     return out
 
 
@@ -119,11 +155,18 @@ def datapack_entry(key):
     """JSON ของ biome หนึ่งตัว ตาม schema ที่อ่านจาก 26.2 จริง"""
     i = IDX[key]
     _k, _label, grass, foliage, water, sky = BIOMES[i]
+    attributes = {
+        "minecraft:visual/sky_color": sky,
+        "minecraft:audio/background_music": _music(MUSIC[key]),
+        "minecraft:visual/water_fog_color": WATER_FOG[key],
+    }
+    if key in WATER_FOG_DISTANCE:
+        attributes["minecraft:visual/water_fog_end_distance"] = {
+            "argument": WATER_FOG_DISTANCE[key],
+            "modifier": "multiply",
+        }
     return {
-        "attributes": {
-            "minecraft:visual/sky_color": sky,
-            "minecraft:audio/background_music": _music(MUSIC[key]),
-        },
+        "attributes": attributes,
         "downfall": 0.6,
         "effects": {
             "water_color": water,

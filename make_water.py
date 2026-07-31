@@ -19,6 +19,7 @@ import numpy as np
 
 import config as C
 import surface as S
+from pipeline_progress import use_utf8_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,8 +35,22 @@ def chamfer_distance(mask):
     ซึ่งเพียงพอสำหรับกำหนดความลึก
     """
     INF = np.int32(1 << 29)
-    d = np.where(mask, INF, np.int32(0)).astype(np.int32)
+    d = np.where(mask, INF, np.int32(0))
     h, w = d.shape
+
+    # การแพร่แนวนอนในแถวเดียวเป็น prefix-minimum ไม่ต้องวนทีละ cell
+    #
+    #   row[j] = min(row[j], row[j-1] + 3)  ที่ทำไล่ตามลำดับ
+    #     = min ของ (row[k] + 3*(j-k)) ทุก k <= j
+    #     = 3j + min ของ (row[k] - 3k) ทุก k <= j
+    #
+    # ก้อนหลังคือ np.minimum.accumulate ตรง ๆ ทางย้อนกลับใช้สูตรกระจกเงา
+    # เดิมลูปนี้เป็น Python 10000 รอบต่อแถว x 10000 แถว x 2 pass = 200 ล้านรอบ
+    # วัดจริง (สุ่ม 3% water, extrapolate O(n^2) จาก 4000^2): ~32 วิ -> ~1.4 วิ
+    #
+    # ค่าสูงสุดระหว่างทางคือ INF + 3w = 536,900,909 ยังอยู่ในช่วง int32
+    offsets = np.arange(w, dtype=np.int32) * np.int32(3)
+    scratch = np.empty(w, dtype=np.int32)
 
     # รอบไปข้างหน้า
     for i in range(h):
@@ -45,9 +60,9 @@ def chamfer_distance(mask):
             np.minimum(row, prev + 3, out=row)
             np.minimum(row[1:], prev[:-1] + 4, out=row[1:])
             np.minimum(row[:-1], prev[1:] + 4, out=row[:-1])
-        for j in range(1, w):
-            if row[j] > row[j - 1] + 3:
-                row[j] = row[j - 1] + 3
+        np.subtract(row, offsets, out=scratch)
+        np.minimum.accumulate(scratch, out=scratch)
+        np.add(scratch, offsets, out=row)
     # รอบย้อนกลับ
     for i in range(h - 1, -1, -1):
         row = d[i]
@@ -56,10 +71,14 @@ def chamfer_distance(mask):
             np.minimum(row, nxt + 3, out=row)
             np.minimum(row[1:], nxt[:-1] + 4, out=row[1:])
             np.minimum(row[:-1], nxt[1:] + 4, out=row[:-1])
-        for j in range(w - 2, -1, -1):
-            if row[j] > row[j + 1] + 3:
-                row[j] = row[j + 1] + 3
-    return d.astype(np.float32) / 3.0
+        np.add(row, offsets, out=scratch)
+        np.minimum.accumulate(scratch[::-1], out=scratch[::-1])
+        np.subtract(scratch, offsets, out=row)
+    # in-place หาร — `d.astype(np.float32) / 3.0` ทิ้ง float32 เต็มแผนที่
+    # (400 MB) เพิ่มอีกก้อนโดยไม่จำเป็น
+    distance = d.astype(np.float32)
+    distance /= 3.0
+    return distance
 
 
 def base_depth_from_water_mask(water, max_depth_blocks=MAX_DEPTH_BLOCKS,
@@ -197,6 +216,7 @@ def add_underwater_relief(depth, water, max_depth_blocks=MAX_DEPTH_BLOCKS,
 
 
 def main():
+    use_utf8_stdout()
     meta = S.load_meta()
     v_scale = meta["meters_per_block_v"]
     print(
@@ -231,11 +251,20 @@ def main():
     try:
         from PIL import Image
         Image.MAX_IMAGE_PIXELS = None
-        img = np.zeros((*depth.shape, 3), np.uint8)
-        img[..., 2] = np.where(water, 90 + depth.astype(np.int32) * 8, 0).clip(0, 255)
-        img[..., 1] = np.where(water, 60 + depth.astype(np.int32) * 3, 0).clip(0, 255)
-        Image.fromarray(img).resize((1600, 1600), Image.NEAREST).save(
-            os.path.join(HERE, "water_depth.png"))
+        # ย่อก่อนแล้วค่อยลงสี — เดิมสร้างภาพเต็ม 10000x10000x3 (300 MB) บวก
+        # int32 เต็มแผนที่อีกสองก้อน (400 MB ต่อก้อน) แล้วโยนทิ้งเกือบหมดตอน
+        # resize เหลือ 1600px  การเลือก index แบบเดียวกับ NEAREST ของ PIL
+        # ให้ภาพเดิมทุกพิกเซลด้วยหน่วยความจำ ~8 MB
+        size = 1600
+        rows = ((np.arange(size) + 0.5) * depth.shape[0] / size).astype(np.intp)
+        cols = ((np.arange(size) + 0.5) * depth.shape[1] / size).astype(np.intp)
+        picked = np.ix_(rows, cols)
+        small_depth = depth[picked].astype(np.int32)
+        small_water = water[picked]
+        img = np.zeros((size, size, 3), np.uint8)
+        img[..., 2] = np.where(small_water, 90 + small_depth * 8, 0).clip(0, 255)
+        img[..., 1] = np.where(small_water, 60 + small_depth * 3, 0).clip(0, 255)
+        Image.fromarray(img).save(os.path.join(HERE, "water_depth.png"))
         print("บันทึก water_depth.png (ยิ่งสว่าง = ยิ่งลึก)")
     except ImportError:
         pass

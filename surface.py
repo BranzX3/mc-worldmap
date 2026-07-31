@@ -67,11 +67,13 @@ def shore_probabilities(water, water_depth, shore_width=4, search_blocks=12):
 
     wmax = water_depth.astype(np.int16, copy=True)
     for _ in range(max(shore_width, int(search_blocks))):
+        # `expanded` ต้องเป็นสำเนาเพื่อให้การแพร่เป็น synchronous แต่ np.maximum
+        # ที่ไม่ใส่ out= ยังทิ้ง array ขนาดเท่า input เพิ่มอีกก้อนทุกบรรทัด
         expanded = wmax.copy()
-        expanded[1:, :] = np.maximum(expanded[1:, :], wmax[:-1, :])
-        expanded[:-1, :] = np.maximum(expanded[:-1, :], wmax[1:, :])
-        expanded[:, 1:] = np.maximum(expanded[:, 1:], wmax[:, :-1])
-        expanded[:, :-1] = np.maximum(expanded[:, :-1], wmax[:, 1:])
+        np.maximum(expanded[1:, :], wmax[:-1, :], out=expanded[1:, :])
+        np.maximum(expanded[:-1, :], wmax[1:, :], out=expanded[:-1, :])
+        np.maximum(expanded[:, 1:], wmax[:, :-1], out=expanded[:, 1:])
+        np.maximum(expanded[:, :-1], wmax[:, 1:], out=expanded[:, :-1])
         wmax = expanded
 
     lake_body = np.clip(
@@ -113,6 +115,7 @@ BLOCKS = {
     "gravel":      ("gravel",             (132,128,126)),   # 128
     "cobble":      ("cobblestone",        (128,127,128)),   # 127
     "stone":       ("stone",              (126,126,126)),   # 126
+    "dead_brain":  ("dead_brain_coral_block", (124,118,114)), # 119
     "mossy_cob":   ("mossy_cobblestone",  (110,118, 95)),   # 115
     "dripstone":   ("dripstone_block",    (134,108, 92)),   # 112
     "pale_moss":   ("pale_moss_block",    (107,112,105)),   # 111
@@ -140,6 +143,8 @@ BLOCKS = {
 }
 KEYS = list(BLOCKS)
 IDX = {k: i for i, k in enumerate(KEYS)}
+SOIL_KEYS = ("grass", "moss", "podzol", "dirt", "coarse", "rooted")
+SOIL_IDS = np.asarray([IDX[k] for k in SOIL_KEYS], dtype=np.uint8)
 
 # ---- slab สำหรับไล่ระดับครึ่งบล็อก ----------------------------------------
 # วานิลลามี slab เฉพาะหิน — ดิน หญ้า มอส กรวด ทราย ไม่มีเลย การไล่ระดับครึ่ง
@@ -185,20 +190,21 @@ PALETTE = {
     "barren":    [("gravel", .26), ("tuff", .22), ("stone", .16), ("pale_moss", .14), ("andesite", .12), ("coarse", .10)],
     "scree":     [("gravel", .36), ("cobble", .22), ("tuff", .18), ("stone", .14), ("andesite", .10)],
     # ผาต่ำใต้ 900 m — อยู่ในร่มป่า ชื้น มอสเกาะ สีเข้ม
-    "rock_low":  [("stone", .24), ("mossy_cob", .18), ("cob_deep", .16), ("andesite", .14), ("deepslate", .14), ("tuff", .14)],
+    "rock_low":  [("stone", .34), ("andesite", .24), ("tuff", .18),
+                  ("mossy_cob", .12), ("dripstone", .07), ("pale_moss", .05)],
     # ผากลาง 900-1450 m
-    "rock_mid":  [("stone", .28), ("andesite", .26), ("cobble", .17),
-                  ("tuff", .13), ("gravel", .09), ("dripstone", .07)],
+    "rock_mid":  [("stone", .33), ("andesite", .28), ("tuff", .15),
+                  ("gravel", .09), ("cobble", .08), ("dripstone", .07)],
     # ผาหินปูนสูง — Dachstein เป็นหินปูนสีอ่อน ผุกร่อนแบบ karst
-    # ไล่ 224 -> 189 -> 166 -> 159 -> 136 -> 126 ใช้ clay/smooth_stone อุดช่องว่าง
-    "rock_high": [("calcite", .26), ("diorite", .23), ("clay", .14),
-                  ("andesite", .14), ("stone", .12), ("gravel", .07),
+    # ไล่ calcite -> diorite -> andesite -> stone; clay/smooth ไม่ใช่ bedrock bridge
+    "rock_high": [("calcite", .30), ("diorite", .29), ("andesite", .18),
+                  ("stone", .13), ("gravel", .06),
                   ("pale_moss", .04)],
     # ตีนผา — เศษหินที่ร่วงลงมาปนกับดินที่ถูกกัดเซาะ โทนน้ำตาลอมเทา
     # dripstone_block เป็นหินสีน้ำตาลอุ่นตัวเดียวในเกม จึงเป็นแกนของโทนนี้
-    "cliff_foot": [("gravel", .20), ("dripstone", .16), ("packed_mud", .14),
-                   ("coarse", .13), ("tuff", .12), ("cobble", .10),
-                   ("mushroom", .08), ("deepslate", .07)],
+    "cliff_foot": [("gravel", .21), ("dripstone", .14), ("dead_brain", .08),
+                   ("packed_mud", .13), ("coarse", .13), ("tuff", .15),
+                   ("cobble", .09), ("mushroom", .07)],
     "wetland":   [("mud", .42), ("moss", .20), ("packed_mud", .18),
                   ("dirt", .12), ("mushroom", .08)],
     "farm":      [("rooted", .34), ("grass", .28), ("packed_mud", .20),
@@ -672,9 +678,7 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
 
     # ตัดป่าออกตรงที่ผิวสุดท้ายไม่ใช่ดิน — กฎความชัน/หิมะทำงานทีหลัง landcover
     # ถ้าไม่เช็คตรงนี้ ต้นไม้กับหญ้าจะไปงอกบนหินและหิมะ
-    soil_ids = np.array([IDX[k] for k in
-                         ("grass", "moss", "podzol", "dirt", "coarse", "rooted")])
-    soil = np.isin(surf, soil_ids)
+    soil = np.isin(surf, SOIL_IDS)
     forest_p *= soil
     # Thin snow can coexist with sparse conifers.  One full block of
     # accumulation must stay clear so trunks are not buried or rejected.

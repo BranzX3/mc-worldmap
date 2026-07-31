@@ -19,6 +19,7 @@
 ```bash
 python make_water.py            # ~1 นาที   -> water_mask.npy, water_depth.npy
 python terrain_shape.py         # ~3 นาที   -> terrain_y.npy, terrain_sub.npy
+python make_water_levels.py     # ระดับน้ำ global + ทางออกลำธาร
 python make_world_datapack.py            # เขียน datapack ลงโลก
 python make_world_datapack.py --enable   # ใส่ file/tall_overworld ลง level.dat
 python make_world_datapack.py --verify   # ต้องผ่านก่อนทำอะไรต่อ
@@ -28,6 +29,9 @@ python paint_surface.py  [--patch x z size]
 
 `terrain_shape.py` ต้องรัน **หลัง** `make_water.py` เพราะใช้ `water_mask` กัน
 ไม่ให้ผิวทะเลสาบถูก dither จนเป็นตุ่ม
+
+`make_water_levels.py` ต้องรัน **หลัง** `terrain_shape.py` เพราะใช้
+`terrain_y.npy` ซึ่งเป็นผิวจริงชุดเดียวกับที่ `build_terrain.py` เขียนลงโลก
 
 ## กฎเหล็ก: แหล่งความจริงเดียว
 
@@ -41,6 +45,8 @@ python paint_surface.py  [--patch x z size]
 | ชนิดไม้ | `ecology.tree_species()` | `surface.classify()` คืน `leaf` ส่วน paint เลือกเอง -> พรีวิวโกหก |
 | สเกลแนวตั้ง | `surface.load_meta()` (คำนวณสดจาก config) | `heightmap_meta.json` เก็บค่าเก่าค้างไว้ |
 | ภูมิประเทศที่ metric วัด | `terrain_y.npy` | `report_metrics.py` คำนวณ `rint()` เอง = วัดของที่ไม่มีอยู่ |
+| ชื่อไฟล์ product ของน้ำ | `hydrology_patch_io.water_product_path()` | mapping อยู่ใน `paint_surface` ที่เดียว `report_metrics`/`render_*` จึงอ่านชุดเดิมต่อ ทั้งที่โลกเขียนจาก `hydrology_global/` |
+| เศษความสูงที่ preview/metric ใช้ | `terrain_sub.npy` | `render_preview` กับ `report_metrics` แปลงจาก `heightmap.png` เอง |
 
 **ก่อนเพิ่มการคำนวณอะไรก็ตาม ให้เช็คว่ามีที่อื่นคำนวณค่าเดียวกันอยู่แล้วหรือไม่**
 
@@ -53,6 +59,8 @@ python paint_surface.py  [--patch x z size]
 | `water_mask.npy` / `water_depth.npy` | 100 MB | `make_water.py` |
 | `terrain_y.npy` (int16) | 191 MB | `terrain_shape.py` |
 | `terrain_sub.npy` (int8) | 95 MB | `terrain_shape.py` |
+| `water_surface_y.npy` (int16) | 191 MB | `make_water_levels.py` |
+| `water_lake_mask.npy` / `water_outlet_mask.npy` | 95 MB ต่อไฟล์ | `make_water_levels.py` |
 
 `heightmap.png` เก็บความสูงแบบ **normalize (0..65535 ต่อช่วง elev จริง)** จึงไม่
 ขึ้นกับสเกลแนวตั้ง เปลี่ยน `Y_TERRAIN_*` ใน config ได้โดยไม่ต้องสร้าง DEM ใหม่ —
@@ -60,10 +68,18 @@ python paint_surface.py  [--patch x z size]
 
 ## เครื่องมือตรวจ
 
+**ทุกตัวต้องส่ง `--hydrology-root` ให้ตรงกับที่ `build_terrain`/`paint_surface` ใช้**
+ไม่งั้นจะวัดและวาด product คนละชุดกับที่อยู่ในโลก ซึ่งเคยเกิดมาแล้วโดยไม่มีอะไรฟ้อง
+`report_metrics` พิมพ์บรรทัด "product ที่วัด" ไว้ตอนต้นรายงานเพื่อให้เห็นทันที
+
 ```bash
-python report_metrics.py                 # ตัวเลขคุณภาพทั้งแผนที่ ไม่เปิดโลก
-python report_metrics.py --patch x z size
-python render_preview.py 1200 <x> <z> <r>   # top-down
-python render_view.py --at <x> <z> --panorama  # ระดับสายตา (near-field ยังพัง)
+HR="--hydrology-root hydrology_global"
+python report_metrics.py $HR              # ตัวเลขคุณภาพทั้งแผนที่ ไม่เปิดโลก
+python report_metrics.py --patch x z size $HR
+python render_preview.py 1200 <x> <z> <r> $HR   # top-down
+python render_view.py --at <x> <z> --panorama $HR  # ระดับสายตา (near-field ยังพัง)
 python -m unittest discover -s tests
 ```
+
+ถ้าไม่ใส่ `--hydrology-root` ทุกตัวจะอ่าน product ชุดเดิมจาก `make_water.py` +
+`make_water_levels.py` ซึ่งยังใช้ได้อยู่แต่ **ไม่ใช่ชุดที่เขียนลงโลกแล้ว**

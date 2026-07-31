@@ -24,7 +24,15 @@ from PIL import Image
 
 import config as C
 from paint_world import repair_entities
-from pipeline_progress import load_progress, save_progress, world_session_locked
+from pipeline_progress import (
+    load_progress,
+    load_progress_metadata,
+    save_progress,
+    save_progress_metadata,
+    working_set_mb,
+    world_session_locked,
+)
+from hydrology_patch_io import load_hydrology_patch
 
 Image.MAX_IMAGE_PIXELS = None
 CHUNK = 16
@@ -40,7 +48,7 @@ BLOCK_TERRAIN = ("minecraft", "stone")
 BLOCK_BEDROCK = ("minecraft", "bedrock")  # ชั้นล่างสุด 1 บล็อก, None = ไม่ต้อง
 
 
-def surface_grid():
+def surface_grid(hydrology_patch=None, hydrology_root=None):
     """คืน array [x, z] ของ y ผิวดิน (int) จาก terrain_y.npy
 
     ต้องอ่านไฟล์ที่ terrain_shape.py สร้างไว้ ไม่ใช่แปลง heightmap เอง — เดิม
@@ -48,12 +56,22 @@ def surface_grid():
     (เช่นตอนเพิ่ม dither) ผิวดินที่ paint วางจะไม่ตรงกับหินที่ build ถม โดยไม่มี
     อะไรฟ้อง
     """
-    path = os.path.join(HERE, "terrain_y.npy")
+    path = os.path.join(
+        os.path.abspath(hydrology_root) if hydrology_root else HERE,
+        "terrain_y.npy",
+    )
     if not os.path.exists(path):
         raise SystemExit(
             "ไม่พบ terrain_y.npy — รัน terrain_shape.py ก่อน"
         )
     y = np.load(path)
+    if hydrology_patch is not None:
+        x0, x1, z0, z1 = map(int, hydrology_patch["bounds"])
+        if not (
+            0 <= x0 < x1 <= y.shape[1] and 0 <= z0 < z1 <= y.shape[0]
+        ):
+            raise SystemExit("hydrology patch bounds are outside terrain_y.npy")
+        y[z0:z1, x0:x1] = hydrology_patch["terrain_y"]
     if y.shape[0] != C.GRID:
         print(f"[เตือน] terrain_y {y.shape[0]} ไม่ตรงกับ GRID={C.GRID}")
     # แกนไฟล์ [row=z, col=x] -> ต้อง transpose ให้เป็น [x, z] แบบ Minecraft
@@ -80,7 +98,41 @@ def main():
             "menu before running build_terrain.py"
         )
 
-    surf = surface_grid()
+    hydro_patch = None
+    hydro_root = None
+    if "--hydrology-root" in sys.argv:
+        i = sys.argv.index("--hydrology-root")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--hydrology-root requires a directory")
+        hydro_root = os.path.abspath(sys.argv[i + 1])
+        if not os.path.isfile(os.path.join(hydro_root, "terrain_y.npy")):
+            raise SystemExit("hydrology root has no terrain_y.npy")
+        print(f"[HYDROLOGY GLOBAL] {hydro_root}")
+    if "--hydrology-patch" in sys.argv:
+        i = sys.argv.index("--hydrology-patch")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--hydrology-patch requires an .npz path")
+        try:
+            hydro_patch = load_hydrology_patch(sys.argv[i + 1])
+        except (FileNotFoundError, ValueError) as exc:
+            raise SystemExit(str(exc)) from exc
+        if "--patch" not in sys.argv:
+            raise SystemExit("--hydrology-patch is restricted to --patch runs")
+        print(f"[HYDROLOGY] overlay {os.path.abspath(sys.argv[i + 1])}")
+
+    if hydro_patch is not None and hydro_root is not None:
+        raise SystemExit("use only one hydrology input")
+    water_only = "--water-only" in sys.argv
+    if water_only and hydro_root is None:
+        raise SystemExit("--water-only requires --hydrology-root")
+    affected_chunks = (
+        np.load(os.path.join(hydro_root, "affected_chunks.npy"), mmap_mode="r")
+        if water_only else None
+    )
+
+    surf = surface_grid(
+        hydrology_patch=hydro_patch, hydrology_root=hydro_root
+    )
     n = surf.shape[0]
     print(f"heightmap {n}x{n}  ผิวดิน y {surf.min()} ถึง {surf.max()}")
 
@@ -119,17 +171,41 @@ def main():
     # ถ้ากองทั้ง 390,625 chunks ไว้แล้วค่อย save ทีเดียวจะ MemoryError กลางทาง
     # และเสียงานทั้งหมดเพราะยังไม่เคยเขียนลงดิสก์เลย — วนทีละ region แทน
     # ผลพลอยได้: พังกลางทางเสียแค่ region เดียว และ resume ต่อได้
-    RSIZE = 32
+    # ที่ WORLD_HEIGHT=784 หนึ่ง chunk = 49 sections x 16^3 x uint32 = ~800 KB
+    # RSIZE 32 = 1024 chunks = ~820 MB ค้างจนถึง purge() ปลาย region
+    # 16 = 256 chunks = ~205 MB แลกกับ save() ถี่ขึ้นสี่เท่า
+    #
+    # key ของ build_progress.txt คือ index ของ region ไม่ใช่พิกัดบล็อก การเปลี่ยน
+    # ค่านี้จึงทำให้ checkpoint เดิมหมายถึงคนละพื้นที่ — ดูการตรวจ region_chunks
+    # ข้างล่าง ห้ามเปลี่ยนโดยไม่ผ่านการตรวจนั้น
+    RSIZE = 16
     n_regions = (n_chunks + RSIZE - 1) // RSIZE
     total_regions = n_regions * n_regions
 
     done_file = os.path.join(HERE, "build_progress.txt")
+    meta_file = os.path.join(HERE, "build_progress.meta.json")
     done = set()
     if "--resume" in sys.argv and os.path.exists(done_file):
+        recorded = (load_progress_metadata(meta_file) or {}).get("region_chunks")
+        if recorded != RSIZE:
+            raise SystemExit(
+                "--resume refused: build_progress.txt ถูกเขียนด้วย region ขนาด "
+                f"{recorded or '(ไม่ทราบ — ไม่มี metadata)'} chunks "
+                f"แต่ตอนนี้ RSIZE={RSIZE}\n"
+                "key ของ checkpoint คือ index ของ region ไม่ใช่พิกัดบล็อก "
+                "การ resume ข้ามขนาดจะข้ามพื้นที่ผิดโดยไม่มีอะไรฟ้อง\n"
+                f"เลือกอย่างใดอย่างหนึ่ง: ลบ {os.path.basename(done_file)} "
+                "แล้ว build ใหม่ทั้งหมด "
+                f"หรือตั้ง RSIZE กลับเป็น {recorded} เพื่อใช้ checkpoint เดิมต่อ"
+            )
         done = load_progress(done_file)
         print(f"resume: ข้าม {len(done)} region ที่ทำไปแล้ว")
     elif os.path.exists(done_file) and "--patch" not in sys.argv:
         os.remove(done_file)
+    if "--patch" not in sys.argv:
+        save_progress_metadata(
+            meta_file, {"schema": 1, "region_chunks": RSIZE}
+        )
 
     written = 0
     t0 = time.time()
@@ -141,6 +217,19 @@ def main():
         total_regions = len(regions)
     else:
         regions = [(a, b) for a in range(n_regions) for b in range(n_regions)]
+    if affected_chunks is not None:
+        regions = [
+            (rx, rz) for rx, rz in regions
+            if np.asarray(affected_chunks[
+                rz * RSIZE:min((rz + 1) * RSIZE, affected_chunks.shape[0]),
+                rx * RSIZE:min((rx + 1) * RSIZE, affected_chunks.shape[1]),
+            ]).any()
+        ]
+        total_regions = len(regions)
+        print(
+            f"[WATER ONLY] {int(np.asarray(affected_chunks).sum()):,} chunks "
+            f"in {total_regions:,} regions"
+        )
 
     for ri, (rx, rz) in enumerate(regions, 1):
         key = f"{rx},{rz}"
@@ -155,6 +244,11 @@ def main():
         for cx in range(cx_lo, cx_hi):
             xs = slice(cx * CHUNK, (cx + 1) * CHUNK)
             for cz in range(cz_lo, cz_hi):
+                if (
+                    affected_chunks is not None
+                    and not bool(affected_chunks[cz, cx])
+                ):
+                    continue
                 tile = surf[xs, cz * CHUNK : (cz + 1) * CHUNK]  # (16, 16)
                 top = int(tile.max())
 
@@ -195,28 +289,8 @@ def main():
 
         pct = ri / total_regions
         el = time.time() - t0
-        rss = ""
-        try:
-            import ctypes
-
-            class PMC(ctypes.Structure):
-                _fields_ = [("cb", ctypes.c_uint32), ("PageFaultCount", ctypes.c_uint32)] + [
-                    (nm, ctypes.c_size_t)
-                    for nm in (
-                        "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
-                        "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
-                        "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage",
-                    )
-                ]
-
-            c = PMC()
-            c.cb = ctypes.sizeof(c)
-            ctypes.windll.psapi.GetProcessMemoryInfo(
-                ctypes.windll.kernel32.GetCurrentProcess(), ctypes.byref(c), c.cb
-            )
-            rss = f" RAM {c.WorkingSetSize/1024/1024:,.0f}MB"
-        except Exception:
-            pass
+        used = working_set_mb()
+        rss = f" RAM {used:,.0f}MB" if used else ""
 
         sys.stdout.write(
             f"\rregion {ri}/{total_regions} ({pct:5.1%})  {written:,} chunks  "
@@ -232,9 +306,15 @@ def main():
     else:
         print("ข้าม entity repair (ใช้ --repair-entities เมื่อต้องการรันโดยตั้งใจ)")
 
-    mid = (n_chunks * CHUNK) // 2
+    # ต้องชี้ไปที่สิ่งที่เพิ่งเขียนจริง ไม่ใช่กลางแผนที่เสมอ — เดิมรัน --patch
+    # ตรงไหนก็พิมพ์พิกัดกลางแผนที่ ซึ่งมักเป็น void ทำให้ดูเหมือนงานหายไปทั้งก้อน
+    if patch:
+        tx = min(surf.shape[0] - 1, max(0, (patch[0] + patch[1]) * CHUNK // 2))
+        tz = min(surf.shape[1] - 1, max(0, (patch[2] + patch[3]) * CHUNK // 2))
+    else:
+        tx = tz = (n_chunks * CHUNK) // 2
     print(f"\nรวม {(time.time()-t0)/60:.1f} นาที")
-    print(f"เทเลพอร์ตไปดู:  /tp @s {mid} {int(surf[mid, mid]) + 3} {mid}")
+    print(f"เทเลพอร์ตไปดู:  /tp @s {tx} {int(surf[tx, tz]) + 4} {tz}")
 
 
 if __name__ == "__main__":

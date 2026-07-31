@@ -93,6 +93,46 @@ class SlabStateTests(unittest.TestCase):
         state = P.slab_states(*self._fields(sub))
         np.testing.assert_array_equal(state, -state[::-1])
 
+    def test_slab_choice_follows_the_blended_surface_material(self):
+        cls = np.full((5, 5), S.IDX["diorite"], dtype=np.uint8)
+        cls[2, 2] = S.IDX["calcite"]
+        fields = np.zeros(cls.shape, dtype=np.float32)
+        blended = P.contextual_surface_blend(
+            cls, fields, np.full(cls.shape, 50.0, dtype=np.float32),
+            terrain_sub=np.full(cls.shape, 0.45, dtype=np.float32),
+        )
+
+        state = P.slab_states(
+            np.full(cls.shape, 0.45, dtype=np.float32),
+            blended, np.zeros(cls.shape, bool), np.zeros(cls.shape, bool),
+        )
+
+        self.assertEqual(int(blended[2, 2]), S.IDX["diorite"])
+        self.assertEqual(int(state[2, 2]), 1)
+
+    def test_transition_replaces_pale_moss_with_slab_compatible_coating(self):
+        cls = np.full((64, 64), S.IDX["grass"], dtype=np.uint8)
+        cls[:, 32:] = S.IDX["calcite"]
+        damp = np.full(cls.shape, 0.75, dtype=np.float32)
+        slope = np.zeros(cls.shape, dtype=np.float32)
+        without_sub = P.contextual_surface_blend(cls, damp, slope)
+        with_sub = P.contextual_surface_blend(
+            cls, damp, slope,
+            terrain_sub=np.full(cls.shape, 0.45, dtype=np.float32),
+        )
+
+        pale_transition = without_sub == S.IDX["pale_moss"]
+        gravel_transition = without_sub == S.IDX["gravel"]
+        self.assertTrue(pale_transition.any())
+        self.assertTrue(gravel_transition.any())
+        self.assertTrue(
+            (with_sub[pale_transition] == S.IDX["mossy_cob"]).all()
+        )
+        # Loose gravel intentionally remains a full block with no fake slab.
+        self.assertTrue(
+            (with_sub[gravel_transition] == S.IDX["gravel"]).all()
+        )
+
 
 class SlabPaintTests(unittest.TestCase):
     """ตรวจว่าเขียนลง volume จริงถูกตำแหน่ง"""

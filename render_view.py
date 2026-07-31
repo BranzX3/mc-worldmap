@@ -28,6 +28,8 @@ from PIL import Image
 import config as C
 import ecology as E
 import surface as S
+import hydrology_patch_io as H
+from pipeline_progress import use_utf8_stdout
 
 Image.MAX_IMAGE_PIXELS = None
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,7 +41,7 @@ WATER_RGB = np.array([58, 104, 150], dtype=np.float32)
 FOG_DISTANCE = 1400.0          # บล็อก — ระยะที่สีจมไปกับหมอกราว 63%
 
 
-def load_window(cx, cz, radius):
+def load_window(cx, cz, radius, hydrology_root=None):
     """อ่านกรอบสี่เหลี่ยมรอบกล้อง คืน array แบบ [x, z]"""
     x0, x1 = max(0, cx - radius), min(C.GRID, cx + radius)
     z0, z1 = max(0, cz - radius), min(C.GRID, cz + radius)
@@ -48,7 +50,7 @@ def load_window(cx, cz, radius):
     )[z0:z1, x0:x1].T.astype(np.float32)
 
     lc = np.load(os.path.join(HERE, "landcover.npz"))["landcover"][z0:z1, x0:x1]
-    wm_path = os.path.join(HERE, "water_mask.npy")
+    wm_path = H.water_product_path("water_mask", hydrology_root, HERE)
     if os.path.exists(wm_path):
         lc = S.apply_water_mask(lc, np.load(wm_path, mmap_mode="r")[z0:z1, x0:x1])
     return hm, lc.T, (x0, z0)
@@ -102,7 +104,7 @@ def colour_tier(elev, lc, origin, step):
     }
 
 
-def build_scene(cx, cz, radius, step=3, near_radius=340):
+def build_scene(cx, cz, radius, step=3, near_radius=340, hydrology_root=None):
     """เตรียมความสูงและสีของกรอบที่มองเห็น
 
     ความสูงใช้ความละเอียดเต็มทั้งกรอบเพราะ silhouette ไวต่อรายละเอียด
@@ -114,12 +116,14 @@ def build_scene(cx, cz, radius, step=3, near_radius=340):
     """
     meta = S.load_meta()
     lo, hi = meta["elev_min_m"], meta["elev_max_m"]
-    hm, lc, (ox, oz) = load_window(cx, cz, radius)
+    hm, lc, (ox, oz) = load_window(cx, cz, radius, hydrology_root=hydrology_root)
 
     elev = lo + hm / 65535.0 * (hi - lo)
     # ระดับผิวดินต้องมาจาก terrain_y.npy ตัวเดียวกับที่ build/paint ใช้ ไม่งั้น
     # ภาพจะไม่มีชั้นหิน กองหินเชิงผา และหลุมยุบที่ terrain_shape.py เติมไว้
-    ty_path = os.path.join(HERE, "terrain_y.npy")
+    # เมื่อมี hydrology_root ต้องเป็น terrain_y ของชุดนั้น ซึ่ง reshape ตลิ่งและ
+    # ก้นน้ำทับไปแล้ว
+    ty_path = H.water_product_path("terrain_y", hydrology_root, HERE)
     if not os.path.exists(ty_path):
         raise SystemExit("ไม่พบ terrain_y.npy — รัน terrain_shape.py ก่อน")
     surface_y = np.load(ty_path, mmap_mode="r")[
@@ -300,14 +304,21 @@ def parse_args(argv):
         "fog": float(flag("--fog", FOG_DISTANCE)),
         "step": int(flag("--step", 3)),
         "panorama": "--panorama" in argv,
+        # ต้องตรงกับที่ paint_surface ใช้ ไม่งั้นภาพจะวาดน้ำและผิวดินจาก
+        # product ชุดที่ไม่ได้อยู่ในโลก
+        "hydrology_root": H.resolve_hydrology_root(argv),
     }
 
 
 def main():
+    use_utf8_stdout()
     a = parse_args(sys.argv)
     radius = int(a["range"]) + 8
     print(f"เตรียมกรอบรอบ ({a['cx']}, {a['cz']}) รัศมี {radius} บล็อก ...")
-    scene = build_scene(a["cx"], a["cz"], radius, step=a["step"])
+    scene = build_scene(
+        a["cx"], a["cz"], radius, step=a["step"],
+        hydrology_root=a["hydrology_root"],
+    )
 
     ox, oz = scene["origin"]
     ground = int(scene["surface_y"][a["cx"] - ox, a["cz"] - oz])

@@ -41,6 +41,11 @@ Y_FILL_BOTTOM = WORLD_Y_MIN
 
 # ส่วนลึกเป็น seed กำหนดระดับผิวน้ำ แล้วส่งระดับนั้นผ่าน shelf น้ำตื้น
 # จนถึงขอบทะเลสาบ พื้นดินริมฝั่งไม่ถูกยก และลำธารตื้นที่ไม่มี core ไม่เปลี่ยน
+#
+# [เฉพาะ pipeline เดิม] ใช้โดย make_water_levels.py กับ fallback ใน
+# paint_surface.lake_surface_levels เท่านั้น — เส้นทาง hydrology_shape --global
+# ไม่อ่านค่านี้เลย ทะเลสาบที่นั่นอยู่ที่ mode ของ terrain พอดี ไม่มี +1
+# อย่าปรับค่านี้เพื่อหวังผลกับโลกที่ build ด้วย --hydrology-root
 LAKE_LEVEL_OFFSET = 1
 LAKE_MIN_DEPTH_FOR_OFFSET = 3
 LAKE_SHORE_SEARCH_BLOCKS = 12
@@ -83,7 +88,7 @@ FOG_COLOR = None
 SKY_COLOR = None
 
 # ---- ฝั่ง Minecraft ----
-WORLD_PATH = r"C:\Users\User\AppData\Roaming\ModrinthApp\profiles\Fabulously Optimized\saves\New World"
+WORLD_PATH = r"C:\Users\User\AppData\Roaming\ModrinthApp\profiles\Fabulously Optimized\saves\mmotest"
 DIMENSION = "minecraft:overworld"
 Y_LEVEL = 60          # วางชั้นเดียวที่ความสูงนี้
 

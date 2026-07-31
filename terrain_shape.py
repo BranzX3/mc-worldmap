@@ -27,6 +27,7 @@ import numpy as np
 
 import config as C
 import surface as S
+from pipeline_progress import use_utf8_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -297,6 +298,7 @@ TILE_SIZE = 1024
 
 
 def main():
+    use_utf8_stdout()
     meta = S.load_meta()
     lo, hi = meta["elev_min_m"], meta["elev_max_m"]
     print("อ่าน heightmap ...")

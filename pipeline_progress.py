@@ -3,6 +3,27 @@
 import hashlib
 import json
 import os
+import sys
+
+
+def use_utf8_stdout():
+    """บังคับ stdout/stderr เป็น UTF-8 — เรียกเป็นบรรทัดแรกของ main() ทุกตัว
+
+    Windows ตั้ง encoding ของ stdout ตาม locale (cp874 สำหรับไทย) ซึ่งเข้ารหัส
+    อักขระอย่าง `km²` ไม่ได้ พอ redirect output ลงไฟล์หรือ pipe จะเกิด
+    UnicodeEncodeError **กลางการพิมพ์รายงาน** ทั้งที่คำนวณเสร็จหมดแล้ว —
+    งานที่ใช้เวลาหลายนาทีจึงเสียเปล่าเพราะการพิมพ์บรรทัดเดียว
+
+    เป็นสาเหตุเดียวกับที่ข้อความไทยในล็อกกลายเป็นตัวยึกยือเมื่อรันผ่าน pipe
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
 
 
 def world_session_locked(world_path):
@@ -47,6 +68,54 @@ def world_session_locked(world_path):
                     pass
             os.close(fd)
     return False
+
+
+def working_set_mb():
+    """RAM ที่ process ใช้อยู่จริง (MB) — คืน None เมื่ออ่านไม่ได้
+
+    ctypes บน Windows 64-bit ต้องประกาศ argtypes/restype เอง ไม่งั้น HANDLE
+    จาก GetCurrentProcess() ถูกมองเป็น int 32 บิตแล้วถูกตัดครึ่ง เรียกสำเร็จ
+    แต่ได้ศูนย์กลับมา ซึ่งเคยทำให้แถบ progress ของ build_terrain โชว์ RAM 0MB
+    มาตลอดทั้งที่ดูเหมือนใช้งานได้
+    """
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    class _Counters(ctypes.Structure):
+        _fields_ = [
+            ("cb", ctypes.c_uint32),
+            ("PageFaultCount", ctypes.c_uint32),
+        ] + [
+            (name, ctypes.c_size_t)
+            for name in (
+                "PeakWorkingSetSize", "WorkingSetSize",
+                "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                "PagefileUsage", "PeakPagefileUsage",
+            )
+        ]
+
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.GetCurrentProcess.argtypes = []
+        psapi.GetProcessMemoryInfo.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(_Counters), ctypes.c_uint32
+        ]
+        psapi.GetProcessMemoryInfo.restype = ctypes.c_int
+
+        counters = _Counters()
+        counters.cb = ctypes.sizeof(_Counters)
+        if not psapi.GetProcessMemoryInfo(
+            kernel32.GetCurrentProcess(), ctypes.byref(counters),
+            counters.cb,
+        ):
+            return None
+        return counters.WorkingSetSize / (1024 * 1024)
+    except (OSError, AttributeError, ValueError):
+        return None
 
 
 def load_progress(path):
