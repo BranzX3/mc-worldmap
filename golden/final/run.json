@@ -1,0 +1,17 @@
+{
+  "generated": "2026-08-14T15:34:40",
+  "git": "9561aaf+dirty",
+  "fingerprints": {
+    "prototype_stream": "6664d2b768e87d3a",
+    "lake_corridor": "8256e2fedcf6b4e2",
+    "player_liked": "62a2149a7373d8ca",
+    "floodplain_berm": "7140d9c608beec71",
+    "lake_mouth": "3bf97142fb89e829",
+    "cliff_bedding": "7be4135be7f352ca",
+    "steep_stream": "106d8ca21a1795c7",
+    "hill_junction": "b82d0bbbf6521d7f",
+    "flat_river": "762dbfe098b324b5",
+    "wild_canyon": "d772a6537daefa41",
+    "wild_canyon_b": "e6a4a2feb6947248"
+  }
+}

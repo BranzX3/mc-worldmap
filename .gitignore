@@ -29,3 +29,17 @@ heightmap_meta.json
 terrain_y.npy
 terrain_sub.npy
 terrain_terracing_compare.png
+
+# golden_patches.py — npz ที่ shape ไว้ใช้ซ้ำ (ภาพถูกกรองด้วย *.png อยู่แล้ว)
+golden_patches/
+
+# ผลของแต่ละรอบทดลองเป็นของชั่วคราว — เก็บเข้า git แค่รอบ `final` ไว้เป็นจุดอ้างอิง
+# เดียวว่า "ตอน commit นี้ตัวเลขเป็นเท่าไร" ตัวเลขที่ใช้ตัดสินใจอยู่ใน docs/ แล้ว
+golden/*
+!golden/final/
+golden/final/*
+!golden/final/metrics.json
+!golden/final/run.json
+
+# product ของ --global ชุดละ 1.4 GB — สร้างใหม่ได้จาก hydrology_shape.py
+hydrology_global*/

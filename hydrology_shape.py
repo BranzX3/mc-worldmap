@@ -32,6 +32,9 @@ BANK_BLEND_BLOCKS = 8.0
 # เพราะขอบทะเลสาบมีหน้าผาจริงเยอะ ถ้าปล่อยให้ลาดตลิ่งกดได้ไม่จำกัด หน้าผาสูง
 # หลายสิบบล็อกริมทะเลสาบจะถูกไถทิ้งทั้งแถบ  4 พอสำหรับลบผนังตั้ง 1-2 บล็อก
 MAX_LAKE_BANK_ADJUST = 4
+# ความยาวของ "ขั้นบันได" บนตลิ่ง — ระดับน้ำที่ใช้เป็นเพดานการกดถูกมองเป็นค่าสูงสุด
+# ในหน้าต่างนี้ ตลิ่งจึงราบเป็นช่วง ๆ แทนที่จะไล่ลงทีละบล็อกตามผิวน้ำ
+BANK_TERRACE_BLOCKS = 5
 
 # ---- แก่ง/ฝายหิน (ดู build_step_weirs) ----
 # **ปิดอยู่** — ลองแล้วผลออกมาแย่กว่าเดิมชัดเจน
@@ -60,6 +63,10 @@ WATERWAY_MAX_DEPTH = 4
 # ต้องกว้างกว่าลำน้ำที่กว้างที่สุดเล็กน้อย แต่แคบกว่าความยาวช่วงที่ลำน้ำวิ่ง
 # ขนานแกน ไม่งั้นจะยุบลำน้ำทั้งสายให้เป็นระดับเดียว
 MAX_SECTION_WIDTH = 16
+# ระดับผิวน้ำใน run เดียวกันต่างกันได้ไม่เกินกี่บล็อกจึงจะถือว่าเป็น "หน้าตัด"
+# artifact ที่ต้องแก้คือขั้น 1 บล็อกข้ามลำน้ำ ส่วน run ที่ต่างกันมากกว่านี้คือ
+# ลำน้ำที่วิ่งเกือบขนานแกน — ยุบมันคือการขุดปล่อง (วัดได้ 72 บล็อกในรอบเดียว)
+MAX_SECTION_SPREAD = 2
 
 # ---- ความกว้างลำน้ำ ----
 # OSM ไม่มีความกว้างจริงของลำธาร 89% ของเส้นถูกแท็กเป็น `stream` ซึ่งเป็น
@@ -93,6 +100,19 @@ WATERFALL_TERRAIN_DROP = 3
 # ม่านน้ำ (>=3) มิฉะนั้นจะมี drop ที่ไม่มีม่านมาปิด กลายเป็นช่องว่างกลางสายน้ำ
 # เคยตั้งไว้เท่ากับ MAX_WATERFALL_DROP (4) แล้วเกิดช่องว่าง 4 บล็อกจริง
 UNSUPPORTED_MAX_STEP = 2
+# จำนวนรอบสูงสุดที่วน (envelope -> ยุบหน้าตัด) ให้ลู่เข้า ดู shape_waterway_patch
+# 1 = พฤติกรรมเดิม (ทำอย่างละครั้ง) ซึ่งทิ้งขั้นที่ไม่มีม่านปิดไว้
+#
+# 4 ไม่พอ: วัดที่ flat_river แล้วรันการยุบหน้าตัดซ้ำบน *ผลสุดท้าย* ยังเปลี่ยนอีก
+# 237 cell แปลว่าลูปจบก่อนนิ่ง แล้วเหลือขั้น 1-2 บล็อกวิ่งขนานลำน้ำไว้เงียบ ๆ
+# ทั้งสองขั้นตอนกดลงอย่างเดียว การวนจึงหยุดเองแน่นอน เพดานนี้เป็นแค่กันลูปค้าง
+SURFACE_FIXPOINT_PASSES = 16
+# ผิวน้ำถูก envelope กดต่ำกว่า DEM เดิมของ cell นั้นได้มากสุดกี่บล็อก
+#
+# ลำน้ำจริงกัดร่องของตัวเองลึกได้ไม่กี่บล็อกที่สเกลนี้ (4 m/บล็อก) ค่าเดิมคือ
+# *ไม่จำกัด* ซึ่งวัดได้ว่าให้ร่องลึก p50 38 / สูงสุด 122 บล็อก  6 เท่ากับ 24 m
+# ซึ่งลึกกว่าร่องน้ำจริงในพื้นที่นี้อยู่แล้ว แต่ยังพอให้ envelope เกลี่ยขั้นได้
+MAX_ENVELOPE_INCISION = 6
 # ---- สวิตช์ม่านน้ำตก ----
 # โมเดลม่านน้ำปัจจุบันคือ "ผิวน้ำตกแรงตรงไหน ให้เติมน้ำในคอลัมน์ล่างขึ้นไปจนถึง
 # ระดับผิวน้ำของคอลัมน์บน" ซึ่งได้ภาพน้ำตกก็ต่อเมื่อคอลัมน์ล่างถูกหินล้อมสูงเท่า
@@ -492,9 +512,21 @@ def taper_bank_cut(terrain, near_stage, distance, margin=0,
         else np.asarray(rise_per_block, dtype=np.float32)
     )
     ceiling = near_stage + np.rint(rings * rise).astype(np.int32) + int(margin)
-    weight = bank_taper_weight(distance, seal_blocks, blend_blocks)
     excess = np.maximum(0, terrain - ceiling).astype(np.float32)
-    cut = np.rint(excess * weight).astype(np.int32)
+    # เพดานการกด **บวก** ไม่ใช่ **คูณ**
+    #
+    # เดิมใช้ `excess * weight` โดย weight ไล่จาก 1 ลง 0 ตามระยะ ผลคือขนาดการกด
+    # แปรตาม excess ซึ่งบนไหล่เขาสูงถึง 40 บล็อก ระหว่างวงที่ห่างกันหนึ่งบล็อก
+    # weight ต่างกัน ~0.14 การกดจึงต่างกัน ~5 บล็อก = ตลิ่งเป็นบันไดหิน
+    # วัดที่ hill_junction: ฟังก์ชันนี้ทำให้ตลิ่งที่ปีนเกิน 1 บล็อกพุ่งจาก 7%
+    # เป็น 31% และขั้นสูงสุด 4 -> 24 ทั้งที่หน้าที่มันคือ "ลาดตลิ่งให้เดินลงน้ำได้"
+    #
+    # เพดานแบบบวกทำให้การกดของวงที่ติดกันต่างกันไม่เกิน `rise` ต่อบล็อกเสมอ
+    # ไม่ว่า excess จะใหญ่แค่ไหน และยังเฟดเป็นศูนย์พอดีที่ blend_blocks เหมือนเดิม
+    allowance = np.maximum(
+        0.0, (np.asarray(blend_blocks, dtype=np.float32) - distance)
+    ) * rise
+    cut = np.rint(np.minimum(excess, allowance)).astype(np.int32)
     if where is not None:
         cut = np.where(np.asarray(where, dtype=bool), cut, 0)
     return terrain - cut
@@ -817,12 +849,21 @@ def cardinalize_samples(x, z, values):
     )
 
 
-def limit_masked_steps(surface, mask, max_step=1, unlimited=None):
+def limit_masked_steps(surface, mask, max_step=1, unlimited=None, floor=None):
     """Lower a wet surface to a local Lipschitz envelope on its 4-neighbor graph.
 
     ``unlimited`` คือ cell ที่ได้รับอนุญาตให้สูงกว่าเพื่อนบ้านเกิน ``max_step``
     ใช้กับริมน้ำตกที่ยืนยันจากภูมิประเทศจริง ถ้าไม่มีข้อยกเว้นนี้ การบังคับผิวน้ำ
     ให้เรียบจะกดยอดน้ำตกลงมาเสมอพื้นล่างจนน้ำตกหายไปทั้งแผนที่
+
+    ``floor`` คือระดับต่ำสุดที่ยอมให้กดถึง — **จำเป็น ไม่ใช่ของเสริม**
+
+    ฟังก์ชันนี้กดอย่างเดียวและไม่มีขอบเขต: ที่ไหนมี cell ต่ำ ๆ (ปากทะเลสาบ,
+    ปลายน้ำ) มันจะไถผิวน้ำที่อยู่เหนือขึ้นไปลงมาทีละ ``max_step`` ต่อก้าว ยาว
+    เท่าไรก็ได้  บนไหล่เขาที่ลำน้ำลงเร็วกว่านั้นเอง การไถจึงไม่มีวันจบ
+    วัดที่ hill_junction: ก่อนเข้าฟังก์ชันนี้ผิวน้ำอยู่บน DEM พอดี (p50 0)
+    ออกมาแล้วจมลง **38 บล็อก** (p90 69, สูงสุด 122) แล้ว `terrain[way] =
+    surface` ก็ขุดร่องตามลงไป — นี่คือที่มาของ "ลำธารเป็นปล่องหิน" ทั้งหมด
     """
     surface = np.asarray(surface)
     mask = np.asarray(mask, dtype=bool)
@@ -832,6 +873,10 @@ def limit_masked_steps(surface, mask, max_step=1, unlimited=None):
         unlimited = np.asarray(unlimited, dtype=bool)
         if unlimited.shape != mask.shape:
             raise ValueError("unlimited must match mask")
+    if floor is not None:
+        floor = np.asarray(floor, dtype=np.int32)
+        if floor.shape != mask.shape:
+            raise ValueError("floor must match mask")
     step = max(0, int(max_step))
     result = surface.astype(np.int32, copy=True)
     queue = [
@@ -844,20 +889,23 @@ def limit_masked_steps(surface, mask, max_step=1, unlimited=None):
         value, z, x = heapq.heappop(queue)
         if value != int(result[z, x]):
             continue
-        candidate = value + step
         for nz, nx in ((z - 1, x), (z + 1, x), (z, x - 1), (z, x + 1)):
-            if (
-                0 <= nz < height and 0 <= nx < width
-                and mask[nz, nx] and candidate < int(result[nz, nx])
-                and not (unlimited is not None and unlimited[nz, nx])
-            ):
+            if not (0 <= nz < height and 0 <= nx < width) or not mask[nz, nx]:
+                continue
+            if unlimited is not None and unlimited[nz, nx]:
+                continue
+            candidate = value + step
+            if floor is not None:
+                candidate = max(candidate, int(floor[nz, nx]))
+            if candidate < int(result[nz, nx]):
                 result[nz, nx] = candidate
                 heapq.heappush(queue, (candidate, nz, nx))
     return result.astype(surface.dtype, copy=False)
 
 
 def flatten_cross_sections(surface, mask, max_width=MAX_SECTION_WIDTH,
-                           passes=2, locked=None):
+                           passes=8, locked=None, max_spread=MAX_SECTION_SPREAD,
+                           propagate_locked=False, floor=None):
     """บังคับให้ผิวน้ำ *ในหน้าตัดเดียวกัน* เท่ากันทั้งเส้น
 
     แต่ละ cell รับระดับจาก sample ของ centerline ที่ใกล้ที่สุด พอ centerline ถูก
@@ -881,15 +929,22 @@ def flatten_cross_sections(surface, mask, max_width=MAX_SECTION_WIDTH,
         raise ValueError("surface and mask must have the same shape")
     limit = max(2, int(max_width))
 
-    def run_minimum(values, flags, pinned):
-        """ค่าที่ทั้ง run ต้องใช้ร่วมกัน คืนอาร์เรย์ขนาดเท่าเดิม
+    def level_runs(values, flags, pinned, floors=None):
+        """ยุบทุก run ตามแกนแรกให้ราบ **ในที่** คืน True ถ้ามีอะไรเปลี่ยน
 
-        ปกติใช้ค่าต่ำสุด แต่ถ้า run นั้นแตะทะเลสาบ (มี cell ที่ถูก pin) ต้องใช้
-        ระดับของทะเลสาบทั้ง run — ไม่งั้นการยุบจะกดปากน้ำลงมาแล้วทะเลสาบลอย
-        เหนือลำน้ำ  เคยแก้ด้วยการตอกกลับหลังยุบ ซึ่งทำลายการยุบทิ้งไปด้วย
-        (วัดได้: หน้าตัดไม่เท่ากันเด้งจาก 20.5% กลับเป็น 28.2%)
+        ค่าที่ใช้คือค่าต่ำสุดของ run เว้นแต่ run นั้นแตะทะเลสาบ (มี cell ที่ถูก
+        pin) ซึ่งต้องใช้ระดับทะเลสาบทั้ง run — ทั้งสองกรณีได้ run ที่ *ราบ*
+        เหมือนกัน ต่างแค่ค่า
+
+        run ที่รับระดับทะเลสาบไป **ถูก pin ทั้ง run** ต่อ ไม่งั้นการวนไม่ลู่เข้า:
+        อีกแกนหนึ่งเห็น cell พวกนั้นเป็น cell ธรรมดา จึงกดกลับด้วยค่าต่ำสุดของ
+        run ตัวเอง แล้วแกนนี้ก็ยกกลับขึ้นไปอีก สลับกันไปจนหมดจำนวนรอบแล้วคืน
+        ผลที่ยังไม่นิ่ง (ผลจึงขึ้นกับ `passes` ซึ่งเป็นทางเดียวกับที่เคยทำให้
+        --global เพี้ยนจาก --patch มาแล้ว)  พอ pin แผ่ตามไปด้วย เซตของ cell ที่
+        ถูก pin จะโตทางเดียว ส่วน cell ที่เหลือมีแต่ถูกกดลง — ทั้งสองอย่างมี
+        ขอบเขต การวนจึงหยุดเสมอ
         """
-        out = values.copy()
+        changed = False
         for i in range(values.shape[0]):
             row = flags[i]
             if not row.any():
@@ -902,38 +957,75 @@ def flatten_cross_sections(surface, mask, max_width=MAX_SECTION_WIDTH,
                 span = idx[a:b + 1]
                 if span.size < 2 or span.size > limit:
                     continue
+                # run ที่ระดับต่างกันมาก **ไม่ใช่หน้าตัด** — มันคือช่วงที่ลำน้ำ
+                # วิ่งเกือบขนานแกน แล้วบังเอิญยาวไม่เกิน `limit`
+                #
+                # ความยาว run ใช้แยกสองอย่างนี้ไม่ได้: วัดที่ hill_junction แล้ว
+                # ฟังก์ชันนี้ยุบ run ที่ต่างกันถึง **72 บล็อก** ให้เหลือค่าต่ำสุด
+                # 3,578 cell ในรอบเดียว แล้ว `terrain[way] = surface` ก็ขุดตาม
+                # ลงไป — นี่คือปล่องหินที่ golden patches จับได้ ไม่ใช่ envelope
+                #
+                # artifact ที่ตั้งใจแก้คือขั้น *1 บล็อก* ข้ามหน้าตัด การยุบอะไร
+                # ที่ต่างกันมากกว่า `max_spread` จึงเกินหน้าที่ของมันเสมอ
+                run = values[i, span]
+                if int(run.max()) - int(run.min()) > int(max_spread):
+                    continue
+                target = None
                 if pinned is not None:
                     held = pinned[i, span]
                     if (held != UNRESOLVED).any():
-                        out[i, span] = held[held != UNRESOLVED].max()
-                        continue
-                out[i, span] = values[i, span].min()
-        return out
+                        target = held[held != UNRESOLVED].max()
+                        pinned[i, span] = target
+                if target is None:
+                    target = values[i, span].min()
+                    # ห้ามยุบลงต่ำกว่าเพดานการขุดของ cell เอง — ไม่งั้นการยุบจะ
+                    # ต่อยอดจากที่ envelope กดไว้จนแล้วจนรอด (วัดได้ว่า p90 ของ
+                    # ความลึกทะลุ MAX_ENVELOPE_INCISION ไปเป็น 10 บล็อก)
+                    if floors is not None:
+                        target = max(target, int(floors[i, span].max()))
+                if (values[i, span] != target).any():
+                    values[i, span] = target
+                    changed = True
+        return changed
 
-    # ต้องยุบสองแกน *พร้อมกัน* แล้วเอาค่าต่ำสุด ไม่ใช่สลับกันทีละแกน
-    #
-    # ทำสลับกันแล้วแกนที่ทำทีหลังจะชนะเสมอ: run ของแกนนั้นราบ ส่วนความต่างไป
-    # กองอยู่ระหว่างแกนตรงข้าม ขั้นจึงเรียงตามแกนเดียวกันหมด (วัดได้ อัตรา
-    # เส้นขั้น นอน:ตั้ง เพี้ยนจาก 1.13 เป็น 0.10) ซึ่งก็คือปัญหาเดิมแค่หมุน 90 องศา
+    limit_floor = None if floor is None else np.asarray(floor, dtype=np.int32)
+    if limit_floor is not None and limit_floor.shape != surface.shape:
+        raise ValueError("floor must match surface")
     if locked is None:
         pin = None
-        pin_t = None
     else:
-        pin = np.asarray(locked, dtype=np.int16)
+        # ปกติต้อง copy เพราะการแผ่ pin เขียนลงอาร์เรย์นี้
+        #
+        # ``propagate_locked`` ให้ผู้เรียก *เก็บ* การแผ่นั้นไว้ใช้รอบถัดไป จำเป็น
+        # เมื่อถูกเรียกวนคู่กับ `limit_masked_steps`: cell ที่ถูกยกขึ้นหาระดับ
+        # ทะเลสาบในรอบนี้ ถ้ารอบหน้า envelope ไม่รู้ว่ามันถูก pin ก็จะกดกลับลงมา
+        # แล้วการยุบก็ยกขึ้นใหม่ วนแบบนี้ไปเรื่อย ๆ — วัดที่ flat_river: ผลสุดท้าย
+        # ยังไม่นิ่ง (ยุบซ้ำเปลี่ยนอีก 141 cell) แม้วนไปแล้ว 16 รอบ
+        pin = (
+            np.asarray(locked, dtype=np.int16) if propagate_locked
+            else np.array(locked, dtype=np.int16)
+        )
         if pin.shape != surface.shape:
             raise ValueError("locked must match surface")
-        pin_t = pin.T
+
+    # ยุบทีละแกนสลับกัน **วนจนไม่มีอะไรเปลี่ยน** ไม่ใช่คำนวณสองแกนแล้วเอา min
+    #
+    # เคยทำแบบ min(by_row, by_col) ด้วยเหตุผลว่า "ต้องสมมาตร ไม่งั้นแกนที่ทำ
+    # ทีหลังชนะ" แต่มันผิด: เซลล์ในแถวเดียวกันได้ค่าจากคอลัมน์คนละคอลัมน์ซึ่งมี
+    # ค่าต่ำสุดคนละค่า พอ min ต่อเซลล์ ผลลัพธ์ก็ไม่เท่ากันอีก — การยุบถูกทำลาย
+    # ทันทีที่รวม  วัดตอนรันจริง: flatten ทำให้ row-run ที่ไม่เท่ากันเพิ่มจาก
+    # 102 เป็น 111 คือแย่กว่าไม่ทำเลย
+    #
+    # ปัญหา "แกนสุดท้ายชนะ" แก้ด้วยการวนจนลู่เข้า ที่จุดลู่เข้าทั้งสองแกนราบพร้อมกัน
+    # `surface.T` เป็น view ของ `surface` การแก้ผ่านมันจึงแก้ตัวจริงในที่
     for _ in range(max(1, int(passes))):
-        by_row = run_minimum(surface, mask, pin)
-        by_col = run_minimum(surface.T, mask.T, pin_t).T
-        # run ที่ถูก pin ต้องชนะการเอาค่าต่ำสุดของอีกแกน
-        merged = np.minimum(by_row, by_col)
-        if pin is not None:
-            held = pin != UNRESOLVED
-            merged[held] = pin[held]
-        if np.array_equal(merged, surface):
+        changed = level_runs(surface, mask, pin, limit_floor)
+        changed |= level_runs(
+            surface.T, mask.T, None if pin is None else pin.T,
+            None if limit_floor is None else limit_floor.T,
+        )
+        if not changed:
             break
-        surface = merged
     return surface
 
 
@@ -1446,13 +1538,25 @@ def shape_waterway_patch(
 
     surface = np.full(expected, UNRESOLVED, dtype=np.int16)
     surface[way] = nearest_stage[way]
-    lower = base_y.astype(np.int32) - int(max_channel_adjust)
+    # ขอบล่างของ clip ต้องเป็นเพดานการขุดตัวเดียวกัน ไม่ใช่ `max_channel_adjust`
+    #
+    # `max_channel_adjust` (12) คุม *การขยับตลิ่ง* ไม่ใช่ความลึกของร่องน้ำ ใช้มัน
+    # เป็นขอบล่างของผิวน้ำด้วยจึงเปิดให้ร่องลึกได้ถึง 12 บล็อกตั้งแต่ก่อนเข้า
+    # envelope — วัดที่ (6448, 2304) ซึ่งสุ่มเจอว่าเป็นหุบ 66.9%: centerline อยู่
+    # ต่ำกว่า DEM p50 **12 พอดี** คือชนขอบล่างนี้เป๊ะ ๆ ทั้งสาย
+    lower = base_y.astype(np.int32) - int(MAX_ENVELOPE_INCISION)
     upper = base_y.astype(np.int32) + int(max_channel_adjust)
     surface[way] = np.clip(
         surface[way].astype(np.int32), lower[way], upper[way]
     ).astype(np.int16)
+    # เพดานการขุดต้องคุม **ทุก** จุดที่เรียก envelope ไม่ใช่เฉพาะในลูปท้าย
+    #
+    # การเรียกครั้งนี้เคยไม่มีเพดาน มันจึงไถผิวน้ำลงได้ไม่จำกัดที่ 4 บล็อกต่อก้าว
+    # ตั้งแต่ก่อนเข้าลูป — วัดที่ (6448, 2304) ซึ่งสุ่มเจอว่าเป็นหุบ 66.9%:
+    # ผิวน้ำต่ำกว่า DEM p50 12 / p90 27 ทั้งที่ MAX_ENVELOPE_INCISION = 6
+    incision_floor = base_y.astype(np.int32) - int(MAX_ENVELOPE_INCISION)
     surface = limit_masked_steps(
-        surface, way, max_step=max_surface_step
+        surface, way, max_step=max_surface_step, floor=incision_floor,
     )
     mouth_level = np.full(expected, UNRESOLVED, dtype=np.int16)
     for dst, src in (
@@ -1500,6 +1604,13 @@ def shape_waterway_patch(
         -mouth_drop[lift], mouth_pin_max_drop()
     )
     mouth = pull_down | lift
+    # การตอกปากน้ำก็ต้องอยู่ใต้เพดานการขุดเดียวกัน
+    #
+    # เดิมมันดึงลงได้อีก 12 บล็อกจาก *ค่าปัจจุบัน* ซึ่งอยู่ที่เพดานอยู่แล้ว รวมเป็น
+    # 18 บล็อกใต้ DEM — วัดที่ (6448, 2304): cell ที่ถูกนับเป็นหุบ 1,773 cell
+    # เป็นลำน้ำทั้งหมด และผิวน้ำต่ำกว่า DEM p50 17 พอดี
+    # ช่องว่างที่เกิดจากการไม่ดึงลงสุดตอนนี้มีม่านน้ำปิดให้แล้ว (ดู exempt_lip)
+    mouth_target = np.maximum(mouth_target, incision_floor)
     surface[mouth] = mouth_target[mouth].astype(np.int16)
     # envelope ยังคุมลำน้ำปกติไว้ที่ max_surface_step แต่ต้องยกเว้นริมหน้าผาจริง
     # ไม่งั้นน้ำตกที่ profile ปลดล็อกไว้จะถูกไถกลับเป็นขั้นเท่า ๆ กันเรียงกัน
@@ -1526,27 +1637,70 @@ def shape_waterway_patch(
     # สำคัญกว่าเพดานการขยับร่องน้ำ และต้องมาก่อน envelope เพื่อให้การลดถูกไถ
     # ขึ้นไปทางต้นน้ำอย่างต่อเนื่อง ไม่ใช่ค้างเป็นขั้นเดียว
     surface[mouth] = mouth_target[mouth].astype(np.int16)
-    surface = limit_masked_steps(
-        surface, way, max_step=UNSUPPORTED_MAX_STEP, unlimited=supported,
-    )
     # ผิวน้ำต้องเท่ากันทั้งหน้าตัด ไม่งั้นได้ขั้นวิ่งขนานไปกับลำน้ำ
     # ต้องมาหลัง envelope เพราะ envelope เป็นตัวสร้างความต่างข้ามหน้าตัดด้วย
-    # ส่งระดับปากน้ำเข้าไปเป็น "ค่าที่ล็อกไว้" แทนการตอกกลับทีหลัง
-    #
-    # ตอกกลับหลังยุบทำให้ได้ทะเลสาบต่อเนื่องกับลำน้ำก็จริง แต่ทำลายการยุบทิ้ง
-    # ไปด้วย — วัดได้ว่าหน้าตัดที่ไม่เท่ากันเด้งจาก 20.5% กลับเป็น 28.2%
-    # ล็อกตั้งแต่แรกแล้วทั้ง run รับระดับทะเลสาบไปพร้อมกัน ได้ทั้งสองอย่าง
-    # ล็อก cell ปากน้ำ **ทุกตัว** ไม่ใช่เฉพาะตัวที่ต้องขยับ
-    #
-    # cell ที่ระดับตรงกับทะเลสาบอยู่แล้ว (mouth_drop == 0) ไม่อยู่ใน `mouth`
-    # เพราะไม่ต้องขยับ แต่ถ้าไม่ล็อกไว้ การยุบหน้าตัดจะกดมันลงด้วยค่าต่ำสุดของ
-    # run แล้วทะเลสาบก็ลอยเหนือลำน้ำอีก — เศษที่เหลือ 382 cells มาจากตรงนี้
+    # cell ปากน้ำถูกล็อกไว้ที่ระดับทะเลสาบ ทั้ง run จึงรับระดับนั้นไปพร้อมกัน
+    # แทนที่จะถูกกดลงแล้วต้องตอกกลับทีหลัง (ซึ่งทำลายการยุบทิ้งไปด้วย)
     locked = np.full(expected, UNRESOLVED, dtype=np.int16)
     locked[has_mouth] = mouth_target[has_mouth].astype(np.int16)
-    surface = flatten_cross_sections(surface, way, locked=locked)
+    # envelope กับการยุบหน้าตัดต้องวน **จนทั้งคู่จริงพร้อมกัน**
+    #
+    # ทำทีละครั้ง (envelope แล้วยุบ) ไม่พอ เพราะการยุบกด cell ลงหาค่าต่ำสุดของ
+    # หน้าตัด แล้วเพื่อนบ้าน *ตามแนวลำน้ำ* ที่ยังสูงอยู่ก็กลายเป็นขั้นใหม่ที่
+    # envelope ไม่เคยเห็น  ขั้นพวกนั้นไม่ได้ผ่าน `supported` จึงไม่มีม่านน้ำมาปิด
+    # = ช่องว่างกลางสายน้ำ ซึ่งเป็นบั๊กชนิดเดียวกับที่คอมเมนต์เรื่อง clip
+    # ข้างบนเตือนไว้ ("clip ต้องมาก่อน envelope")
+    #
+    # วนแล้วหยุดได้จริงเพราะทั้งสองขั้นตอน *กดลงอย่างเดียว* ยกเว้น cell ที่ pin
+    # ไว้ซึ่งมีค่าคงที่ตายตัว  จบด้วยการยุบเสมอ เพื่อให้ปากน้ำต่อเนื่องกับ
+    # ทะเลสาบและหน้าตัดราบ (สองอย่างที่ตาเห็น) ถึงในรอบสุดท้ายจะยังไม่นิ่ง
+    # พื้นที่ envelope กดได้ลึกสุดแค่ไหน — ผูกกับ DEM ของ cell นั้นเอง
+    #
+    # ไม่ผูกกับอะไรเลย = ปล่องหิน (ดู limit_masked_steps) ส่วนการผูกกับ
+    # `max_channel_adjust` เฉย ๆ ไม่พอ เพราะ clip ทำงานก่อน envelope
+    for _ in range(max(1, int(SURFACE_FIXPOINT_PASSES))):
+        # cell ปากน้ำต้องยกเว้นจาก envelope ด้วย ไม่ใช่แค่จากการยุบหน้าตัด
+        #
+        # การยุบยกมันกลับขึ้นไปที่ระดับทะเลสาบทุกรอบ (pin) ส่วน envelope กดมันลง
+        # ทุกรอบ ลูปจึงไม่มีวันนิ่ง — วัดที่ flat_river: รันการยุบซ้ำบนผลสุดท้าย
+        # ยังเปลี่ยนอีก 237 cell แม้เพิ่มรอบเป็น 16 แล้ว
+        stepped = limit_masked_steps(
+            surface, way, max_step=UNSUPPORTED_MAX_STEP,
+            unlimited=supported | (locked != UNRESOLVED),
+            floor=incision_floor,
+        )
+        # **ห้ามส่ง floor ให้การยุบหน้าตัด** — ลองแล้ววัดแล้ว
+        #
+        # การยุบต่อยอดจากที่ envelope กดไว้ ทำให้ร่องลึกทะลุ MAX_ENVELOPE_INCISION
+        # (p90 = 10) ซึ่งน่าจะแก้ด้วยการใส่เพดานเดียวกัน แต่ผลรวมแย่กว่าชัดเจน:
+        #   หุบเกินธรรมชาติ 21% -> 4-6%  แต่ หน้าตัดไม่ราบ 0 -> 86-223 run
+        #   และช่องว่างกลางสายน้ำ 0 -> 12-18 จุด
+        # สองอย่างหลังเป็น artifact ที่ตาเห็นตรง ๆ (ขั้นวิ่งขนานลำน้ำ + น้ำขาด)
+        # ส่วนหุบเป็นเรื่องความลึกซึ่งเบากว่า จึงเลือกรักษาสองตัวแรกไว้ที่ศูนย์
+        stepped = flatten_cross_sections(
+            stepped, way, locked=locked, propagate_locked=True,
+        )
+        if np.array_equal(stepped, surface):
+            break
+        surface = stepped
+    # ---- ขั้นที่เหลือ = ที่ที่ envelope ถูกห้ามไม่ให้เกลี่ย ----
+    #
+    # ขั้น >= 3 จะเหลือรอดมาได้ก็ต่อเมื่อ **cell บน (lip) ถูกยกเว้น** จาก envelope
+    # เท่านั้น (หน้าผาจริง / ถูก pin ไว้ที่ระดับทะเลสาบ / ชนเพดานการขุด)
+    # เงื่อนไขสร้างม่านจึงต้องอ่านที่ *lip* ด้วยหน้ากากชุดเดียวกับที่ยกเว้น
+    #
+    # ของเดิมอ่าน `supported_foot` ซึ่งเป็นคนละการทดสอบกับ `supported` (lip)
+    # ที่ใช้ยกเว้น พอสองฝั่งไม่ตรงกันก็เกิดจุดที่ผิวน้ำตกแรงได้แต่ไม่มีม่านรองรับ
+    # — วัดได้ 4 จุดที่ prototype_stream และ 1 จุดที่ steep_stream ตรงที่ lip เป็น
+    # หน้าผาจริงแต่ foot ไม่ผ่านการทดสอบฝั่ง foot
+    floor_bound = way & (surface.astype(np.int32) <= incision_floor)
+    pinned = way & (locked != UNRESOLVED)
+    exempt_lip = supported | floor_bound | pinned
+
     waterfall_lip = np.zeros(expected, dtype=bool)
     waterfall_foot = np.zeros(expected, dtype=bool)
     waterfall_drop = np.zeros(expected, dtype=np.uint8)
+    covered_foot = np.zeros(expected, dtype=bool)
     for dst, src in (
         (np.s_[1:, :], np.s_[:-1, :]),
         (np.s_[:-1, :], np.s_[1:, :]),
@@ -1558,6 +1712,7 @@ def shape_waterway_patch(
         falling = connected & (drop >= 2)
         waterfall_lip[src] |= falling
         waterfall_foot[dst] |= falling
+        covered_foot[dst] |= falling & (drop >= 3) & exempt_lip[src]
         waterfall_drop[dst] = np.maximum(
             waterfall_drop[dst],
             np.where(falling, drop, 0).astype(np.uint8),
@@ -1572,7 +1727,14 @@ def shape_waterway_patch(
     # ตรงนี้คือ gate ของ WATER_REDESIGN: "ห้ามเติมม่านจากทุก DEM step"
     # ใช้ `supported` ตัวเดียวกับที่ปลดล็อก envelope ข้างบน — ที่ไหนผิวน้ำตกแรงได้
     # ที่นั่นเท่านั้นที่ต้องมีม่านน้ำ ไม่งั้นเกิดช่องว่างกลางสายน้ำ
-    strong_fall = waterfall_foot & (waterfall_drop >= 3) & supported_foot
+    # cell ที่ชนเพดานการขุด (`incision_floor`) คือที่ที่ envelope **ไม่ได้รับ
+    # อนุญาตให้เกลี่ยขั้นต่อ** ขั้นที่เหลือตรงนั้นจึงไม่ใช่ artifact ของการปัดเศษ
+    # แต่เป็นความชันของภูมิประเทศเองที่โผล่ออกมา — ต้องมีม่านน้ำปิด ไม่งั้นได้
+    # ช่องว่างกลางสายน้ำแทนที่จะเป็นปล่องหิน (ซึ่งไม่ได้ดีขึ้นเลย)
+    strong_fall = (
+        waterfall_foot & (waterfall_drop >= 3)
+        & (covered_foot | supported_foot)
+    )
     waterfall_top = np.full(expected, UNRESOLVED, dtype=np.int16)
     waterfall_top[strong_fall] = (
         surface[strong_fall].astype(np.int32)
@@ -1626,8 +1788,19 @@ def shape_waterway_patch(
             terrain, near_stage, distance,
             blend_blocks=local_band, where=shapeable,
         )
+        # ตลิ่งต้องเป็น *ขั้นบันไดยาว* ไม่ใช่ลอกทุกขั้นของผิวน้ำมาทีละบล็อก
+        #
+        # เพดานการกดเดิมอิงระดับน้ำของ cell นั้นตรง ๆ ตลิ่งวงแรกจึงถูกกดลงมา
+        # เสมอผิวน้ำพอดี แล้ว *ลอกขั้นของน้ำมาทั้งดุ้น* — วัดที่ hill_junction:
+        # ขั้นตลิ่งขนาด 2 บล็อก 802 จุด ตรงกับขอบผิวน้ำที่ตก 2 บล็อก 1,410 จุด
+        # และขั้นตลิ่งที่ปีนไม่ได้ **ทุกจุด** อยู่ห่างน้ำแค่ 1 บล็อก
+        #
+        # ใช้ระดับน้ำที่สูงที่สุดในละแวกแทน ตลิ่งจึงราบต่อเนื่องจนกว่าน้ำจะลดพอ
+        # ให้ลดทั้งขั้น  ใช้ค่า max จึงไม่มีทางกดตลิ่งลงต่ำกว่าผิวน้ำของ cell ตัวเอง
+        # (กันน้ำรั่ว) และไม่ยกอะไรขึ้นเลย
+        bank_stage = ndimage.maximum_filter(near_stage, size=BANK_TERRACE_BLOCKS)
         terrain = taper_bank_cut(
-            terrain, near_stage, distance,
+            terrain, bank_stage, distance,
             blend_blocks=local_band, where=shapeable,
             rise_per_block=hillside_rise_per_block(base_y),
         )
@@ -1763,8 +1936,24 @@ def shape_hydrology_patch(
     }
 
 
-def _component_standing_surface(terrain, body, out_dir, row_batch=512):
-    """Split flat standing basins from sloped water polygons on disk."""
+def _component_standing_surface(terrain, body, out_dir, row_batch=512,
+                                connected=None):
+    """Split flat standing basins from sloped water polygons on disk.
+
+    ``connected`` คือ mask ที่ใช้ **จัดกลุ่ม** ส่วน ``body`` บอกว่าจะเขียนผิวน้ำ
+    ลงที่ไหน  สองอย่างนี้ต้องแยกกันเพราะร่องลำน้ำ (corridor) ผ่ากลางผืนน้ำของ
+    OSM ทำให้น้ำนิ่งสองฝั่งกลายเป็นคนละ component แล้วได้ระดับของใครของมัน
+    ทั้งที่มันเชื่อมถึงกันผ่านลำน้ำตรงกลาง
+
+    ที่ (6066, 5811) ผลคือฝั่งหนึ่ง 21 อีกฝั่ง 22 เดินเลียบลำน้ำจะเห็นสูงต่างกัน
+    หนึ่งบล็อกตลอดแนว และเมื่อ tick น้ำฝั่งสูงไหล *ขวาง* ลำน้ำแทนที่จะไหลตามทาง
+
+    จัดกลุ่มบนผืนน้ำเต็ม (ก่อนตัด corridor) แล้วสองฝั่งจึงเป็นก้อนเดียวกัน
+    ได้ระดับเดียวกันตั้งแต่ต้น — ก่อนที่การขึ้นรูปตลิ่งจะเริ่มทำงาน จึงไม่ต้อง
+    ไปกดระดับทีหลังแล้วทำให้ตลิ่งที่ยกไว้แล้วสูงเกิน
+    """
+    if connected is None:
+        connected = body
     label_path = os.path.join(out_dir, "_standing_labels.npy")
     labels = np.lib.format.open_memmap(
         label_path, mode="w+", dtype=np.int32, shape=body.shape
@@ -1820,14 +2009,15 @@ def _component_standing_surface(terrain, body, out_dir, row_batch=512):
     )
     surface[:] = UNRESOLVED
 
+    # จัดกลุ่มบน `connected` (ผืนน้ำเต็มก่อนตัด corridor) แต่เขียนเฉพาะ `body`
     original_count, _sizes, original_relief, original_levels = label_levels(
-        body
+        connected
     )
     original_standing = original_relief <= 6
     for row0 in range(0, body.shape[0], row_batch):
         row1 = min(body.shape[0], row0 + row_batch)
         lab = np.asarray(labels[row0:row1])
-        accepted = original_standing[lab] & (lab > 0)
+        accepted = original_standing[lab] & (lab > 0) & body[row0:row1]
         tile = surface[row0:row1]
         tile[accepted] = original_levels[lab[accepted]]
 
@@ -2018,7 +2208,19 @@ def seam_step_report(surface, way, tile_size, row_batch=512):
 #
 # ถ้าวันหนึ่งมีกฎใหม่ที่แพร่ไกลกว่านี้ seam_step_report ใน manifest จะฟ้องเอง
 # แล้วค่อยเพิ่มด้วย --halo โดยไม่ต้องแก้โค้ด
-GLOBAL_HALO = 24
+# ระยะซ้อนของ tile ตอน --global
+#
+# 24 พอเมื่อกฎยังเป็นแบบท้องถิ่น แต่ตอนนี้ envelope กับการยุบหน้าตัด **วนกันจนลู่
+# เข้า** (ดู SURFACE_FIXPOINT_PASSES) ผิวน้ำจึงผูกกันเป็นระยะไกล วัดจากผังเต็ม:
+#
+#   halo | ขั้น >=2 ที่ขอบ tile | ภายใน tile | audit (ไม่ราบ/ช่องว่าง/ตลิ่งลอย) | เวลา
+#     24 |               32.7% |       2.5% | 34 / 7 / 3                        | 17 นาที
+#     64 |               18.0% |       2.5% |  9 / 0 / 1                        | 25 นาที
+#    128 |                9.1% |       2.5% |  1 / 0 / 0                        | 50 นาที
+#
+# 128 คือจุดที่ invariant กลับมาเป็นศูนย์ (ตรงกับเส้นทาง --patch) การเพิ่มต่อ
+# ให้ผลลดลงครึ่งหนึ่งต่อการเพิ่มเท่าตัวแต่เวลาโตเท่าตัว — ดู audit_global.py
+GLOBAL_HALO = 128
 
 
 def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
@@ -2046,7 +2248,7 @@ def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
     )
     print("label standing-water components ...")
     standing_surface, component_count, levels = _component_standing_surface(
-        terrain, standing_candidate, out_dir
+        terrain, standing_candidate, out_dir, connected=body,
     )
     # `levels` ตัด dummy index 0 ออกมาแล้วจาก _component_standing_surface
     # การ [1:] ซ้ำจะทิ้ง component แรกและระเบิดเมื่อมี component เดียว
@@ -2146,8 +2348,11 @@ def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
         f"{seams['interior_step2plus_share']:.3%} "
         f"({seams['interior_edges']:,} edges)"
     )
+    # เกณฑ์เตือนต้องสอดคล้องกับที่วัดได้จริง ไม่งั้นมันจะเตือนตลอดกาลจนคนเลิกอ่าน
+    # ที่ halo 128 อัตราส่วนคือ 3.7 เท่า และ audit บอกว่า invariant เป็นศูนย์แล้ว
+    # จึงตั้งไว้ที่ 4 เท่า: เกินกว่านั้นแปลว่ารอยต่อเริ่มมีของที่ตาเห็น
     if seams["seam_step2plus_share"] > max(
-        0.002, seams["interior_step2plus_share"] * 1.5
+        0.002, seams["interior_step2plus_share"] * 4.0
     ):
         print(
             f"[เตือน] ขอบ tile มีขั้นมากกว่าภายในอย่างมีนัย — halo={halo} "

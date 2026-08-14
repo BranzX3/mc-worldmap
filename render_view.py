@@ -41,8 +41,13 @@ WATER_RGB = np.array([58, 104, 150], dtype=np.float32)
 FOG_DISTANCE = 1400.0          # บล็อก — ระยะที่สีจมไปกับหมอกราว 63%
 
 
-def load_window(cx, cz, radius, hydrology_root=None):
-    """อ่านกรอบสี่เหลี่ยมรอบกล้อง คืน array แบบ [x, z]"""
+def load_window(cx, cz, radius, hydrology_root=None, hydrology_patch=None):
+    """อ่านกรอบสี่เหลี่ยมรอบกล้อง คืน array แบบ [x, z]
+
+    ``hydrology_patch`` คือ npz จาก `hydrology_shape.py --patch` — วางทับผลลัพธ์
+    ชุดที่อยู่บนดิสก์เฉพาะในกรอบของมัน ทำให้ดูภาพของ patch ที่เพิ่งขึ้นรูปได้
+    โดยไม่ต้องรัน `--global` ทั้งแผนที่ก่อน (ดู golden_patches.py)
+    """
     x0, x1 = max(0, cx - radius), min(C.GRID, cx + radius)
     z0, z1 = max(0, cz - radius), min(C.GRID, cz + radius)
     hm = np.asarray(
@@ -51,8 +56,17 @@ def load_window(cx, cz, radius, hydrology_root=None):
 
     lc = np.load(os.path.join(HERE, "landcover.npz"))["landcover"][z0:z1, x0:x1]
     wm_path = H.water_product_path("water_mask", hydrology_root, HERE)
+    water = None
     if os.path.exists(wm_path):
-        lc = S.apply_water_mask(lc, np.load(wm_path, mmap_mode="r")[z0:z1, x0:x1])
+        water = np.asarray(np.load(wm_path, mmap_mode="r")[z0:z1, x0:x1])
+    if hydrology_patch is not None:
+        if water is None:
+            water = np.zeros((z1 - z0, x1 - x0), dtype=bool)
+        water = H.overlay_window(
+            water, hydrology_patch, "water_mask", x0, x1, z0, z1
+        )
+    if water is not None:
+        lc = S.apply_water_mask(lc, water)
     return hm, lc.T, (x0, z0)
 
 
@@ -104,7 +118,8 @@ def colour_tier(elev, lc, origin, step):
     }
 
 
-def build_scene(cx, cz, radius, step=3, near_radius=340, hydrology_root=None):
+def build_scene(cx, cz, radius, step=3, near_radius=340, hydrology_root=None,
+                hydrology_patch=None):
     """เตรียมความสูงและสีของกรอบที่มองเห็น
 
     ความสูงใช้ความละเอียดเต็มทั้งกรอบเพราะ silhouette ไวต่อรายละเอียด
@@ -116,7 +131,10 @@ def build_scene(cx, cz, radius, step=3, near_radius=340, hydrology_root=None):
     """
     meta = S.load_meta()
     lo, hi = meta["elev_min_m"], meta["elev_max_m"]
-    hm, lc, (ox, oz) = load_window(cx, cz, radius, hydrology_root=hydrology_root)
+    hm, lc, (ox, oz) = load_window(
+        cx, cz, radius, hydrology_root=hydrology_root,
+        hydrology_patch=hydrology_patch,
+    )
 
     elev = lo + hm / 65535.0 * (hi - lo)
     # ระดับผิวดินต้องมาจาก terrain_y.npy ตัวเดียวกับที่ build/paint ใช้ ไม่งั้น
@@ -126,9 +144,15 @@ def build_scene(cx, cz, radius, step=3, near_radius=340, hydrology_root=None):
     ty_path = H.water_product_path("terrain_y", hydrology_root, HERE)
     if not os.path.exists(ty_path):
         raise SystemExit("ไม่พบ terrain_y.npy — รัน terrain_shape.py ก่อน")
-    surface_y = np.load(ty_path, mmap_mode="r")[
+    surface_y = np.asarray(np.load(ty_path, mmap_mode="r")[
         oz:oz + hm.shape[1], ox:ox + hm.shape[0]
-    ].T.astype(np.int32)
+    ]).astype(np.int32)
+    if hydrology_patch is not None:
+        surface_y = H.overlay_window(
+            surface_y, hydrology_patch, "terrain_y",
+            ox, ox + hm.shape[0], oz, oz + hm.shape[1],
+        ).astype(np.int32)
+    surface_y = surface_y.T
 
     far = colour_tier(elev, lc, (ox, oz), step)
 
@@ -202,7 +226,11 @@ def render(scene, cx, cz, yaw_deg, pitch_deg, fov_deg, width, height,
 
     # ---- ท้องฟ้าเป็นพื้นหลัง ----
     rows = np.arange(height, dtype=np.float32)[:, None]
-    horizon = height * 0.5 - np.tan(np.radians(pitch_deg)) * (
+    # เครื่องหมายของ pitch: ลบ = ก้มลง (แบบเดียวกับกล้องทุกตัวและกับที่ docstring
+    # ของไฟล์นี้เขียนไว้)  เดิมเป็นบวก = ก้มลง ซึ่งกลับด้าน — ที่ -2 องศามันต่างกัน
+    # ไม่กี่พิกเซลเลยไม่มีใครเห็น แต่พอ golden_patches สั่งก้ม 20 องศาเพื่อมองลง
+    # ไปที่ลำน้ำ ภาพที่ได้กลับเป็นท้องฟ้ากับยอดเขา
+    horizon = height * 0.5 + np.tan(np.radians(pitch_deg)) * (
         (width * 0.5) / np.tan(np.radians(fov_deg * 0.5))
     )
     t = np.clip(rows / max(1.0, horizon), 0.0, 1.0)
@@ -307,6 +335,9 @@ def parse_args(argv):
         # ต้องตรงกับที่ paint_surface ใช้ ไม่งั้นภาพจะวาดน้ำและผิวดินจาก
         # product ชุดที่ไม่ได้อยู่ในโลก
         "hydrology_root": H.resolve_hydrology_root(argv),
+        # npz จาก --patch วางทับเฉพาะกรอบของมัน ใช้ดู patch ที่เพิ่งขึ้นรูป
+        "hydrology_patch": flag("--hydrology-patch", None),
+        "out": flag("--out", None),
     }
 
 
@@ -314,10 +345,14 @@ def main():
     use_utf8_stdout()
     a = parse_args(sys.argv)
     radius = int(a["range"]) + 8
+    patch = (
+        None if a["hydrology_patch"] is None
+        else H.load_hydrology_patch(a["hydrology_patch"])
+    )
     print(f"เตรียมกรอบรอบ ({a['cx']}, {a['cz']}) รัศมี {radius} บล็อก ...")
     scene = build_scene(
         a["cx"], a["cz"], radius, step=a["step"],
-        hydrology_root=a["hydrology_root"],
+        hydrology_root=a["hydrology_root"], hydrology_patch=patch,
     )
 
     ox, oz = scene["origin"]
@@ -345,7 +380,7 @@ def main():
     else:
         img = np.concatenate(frames, axis=0)
         tag = f"_x{a['cx']}_z{a['cz']}_pano"
-    out = os.path.join(HERE, f"view{tag}.png")
+    out = a["out"] or os.path.join(HERE, f"view{tag}.png")
     Image.fromarray(img).save(out)
     print(f"บันทึก {out}")
 

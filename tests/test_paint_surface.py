@@ -500,6 +500,31 @@ class PaintSurfaceTests(unittest.TestCase):
 
         self.assertFalse(P.cliff_face_depths(height).any())
 
+    def test_stream_banks_need_a_taller_face_to_count_as_a_cliff(self):
+        """ตลิ่งที่เกิดจากการขุดร่องน้ำต้องไม่ถูกทาเป็นชั้นหินลายทาง
+
+        การขุดร่องสร้างหน้าตั้ง 2-3 บล็อกสองข้างเป็นปกติ เกณฑ์หน้าผาทั่วไป
+        (2 บล็อก) จึงทำให้ตลิ่งลำธารทุกสายเข้าเกณฑ์ palette ชั้นหิน แต่หน้าผา
+        ภูเขาจริงต้องไม่หายไปด้วย จึงขยับเกณฑ์เฉพาะรอบลำน้ำ
+        """
+        height = np.full((9, 9), 30, dtype=np.int32)
+        height[4, :] = 27                      # ร่องน้ำลึก 3 บล็อก
+        height[:, 8] = 24                      # หน้าผาภูเขาลึก 6 บล็อก
+        stream = np.zeros((9, 9), dtype=bool)
+        stream[4, :] = True
+
+        minimum = P.stream_cliff_minimum(stream)
+        depth = P.cliff_face_depths(height, minimum_drop=minimum)
+
+        self.assertEqual(int(minimum[3, 2]), P.STREAM_CLIFF_MIN_DROP)
+        self.assertEqual(int(minimum[0, 2]), 2)
+        self.assertEqual(
+            int(depth[3, 2]), 0, "ตลิ่งลำธารยังถูกนับเป็นหน้าผา"
+        )
+        self.assertGreater(
+            int(depth[0, 7]), 0, "หน้าผาภูเขาจริงหายไปด้วย"
+        )
+
     def test_contextual_blend_uses_neighbour_material_majority(self):
         cls = np.full((7, 7), S.IDX["stone"], dtype=np.uint8)
         cls[3, 3] = S.IDX["andesite"]

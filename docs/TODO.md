@@ -13,6 +13,13 @@
 | bathymetry | **patch ผ่านโครงสร้าง:** depth 1..26, max-depth share 3.18%; ยังไม่รัน global |
 | waterfall | **patch ใหม่:** สร้างจาก directed profile เฉพาะ drop 3–4 พร้อม lip/curtain/pool |
 | shoreline ecology / พืชน้ำ | รอ geometry และ flow field ชุดใหม่ก่อน |
+| ~~ลำธารเป็นปล่องหิน~~ | **แก้แล้ว:** น้ำที่อยู่ในหุบ 93% -> 21% (hill_junction), ขุดลึกสุด 123 -> 33 ดู `WATER_REDESIGN.md` |
+| ตลิ่งยังเป็นขั้นเกินธรรมชาติ | **เหลืออยู่:** `bank_unwalkable_excess` +6..10% (เทียบ DEM ดิบ) |
+| ร่องน้ำลึกเกินเพดาน | **เหลืออยู่ ตัวใหญ่สุด:** การยุบหน้าตัดต่อยอดตัวเองจนลึก p90 27 บล็อก — `canyon_share_excess` สูงสุด 66.9% ทางแก้ที่เสนอ: ยุบเข้าหาระดับ centerline แทนค่าต่ำสุดของ run (ดู `WATER_REDESIGN.md`) |
+| invariant ที่ต้องเป็นศูนย์ | **ผ่านครบ** 11 golden patches + สุ่มนอกชุด 10 จุด: ตลิ่งลอย 0, ช่องว่าง 0, หน้าตัดไม่ราบ 0 |
+
+ก่อนแตะโค้ดน้ำ/ภูมิประเทศ ให้รัน `python golden_patches.py run --tag before`
+แล้วเทียบด้วย `compare` หลังแก้ — ดู `docs/PIPELINE.md` หัวข้อ golden patches
 
 หลักฐานและ pipeline ใหม่อยู่ใน `docs/WATER_REDESIGN.md` ห้ามใช้ค่า
 "ตลิ่งไม่ได้แต่ง 0%" เป็นเกณฑ์ผ่าน เพราะ metric เดิมวัด probability ของวัสดุ

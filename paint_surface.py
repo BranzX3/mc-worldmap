@@ -701,7 +701,11 @@ def slab_states(sub, cls, water, ice, snow=None, threshold=0.25):
 
 
 def cliff_face_depths(height, minimum_drop=2):
-    """Return exposed vertical depth against the lowest cardinal neighbour."""
+    """Return exposed vertical depth against the lowest cardinal neighbour.
+
+    ``minimum_drop`` รับได้ทั้งค่าเดียวและ array ต่อ cell — ริมลำน้ำต้องใช้เกณฑ์
+    สูงกว่าที่อื่น ดู STREAM_CLIFF_MIN_DROP
+    """
     height = np.asarray(height, dtype=np.int32)
     low = height.copy()
     low[1:, :] = np.minimum(low[1:, :], height[:-1, :])
@@ -709,8 +713,36 @@ def cliff_face_depths(height, minimum_drop=2):
     low[:, 1:] = np.minimum(low[:, 1:], height[:, :-1])
     low[:, :-1] = np.minimum(low[:, :-1], height[:, 1:])
     depth = np.maximum(height - low, 0).astype(np.int16)
-    depth[depth < int(minimum_drop)] = 0
+    depth[depth < np.asarray(minimum_drop, dtype=np.int16)] = 0
     return depth
+
+
+# หน้าตั้งริมลำน้ำต้องสูงเท่านี้ถึงจะนับเป็น "หน้าผา" แล้วได้ palette ชั้นหิน
+#
+# การขุดร่องน้ำสร้างหน้าตั้งสองข้างเป็นปกติ เกณฑ์ 2 บล็อกทั่วไปจึงทำให้ตลิ่ง
+# ลำธารทุกสายถูกทาเป็นชั้นหินลายทาง (dripstone/andesite/tuff/coral สลับกัน)
+# ทั้งที่มันควรเป็นหิน-กรวด-ดินแบบตลิ่งลำธาร  ยิ่งก้นน้ำลึกขึ้นหน้าตั้งยิ่งสูง
+# วัดแล้ว: ตลิ่งลำน้ำที่เข้าเกณฑ์หน้าผาเพิ่มจาก 102,416 เป็น 187,585 cells
+#
+# ขยับเกณฑ์เฉพาะรอบลำน้ำ ไม่แตะที่อื่น — ถ้าขยับทั้งแผนที่ หน้าผาภูเขาจริงจะ
+# หายไป 82% ซึ่งเป็นฟีเจอร์ที่ตั้งใจใส่ไว้กันผาเป็นกำแพงสีเดียว
+STREAM_CLIFF_MIN_DROP = 4
+# ระยะรอบลำน้ำที่ใช้เกณฑ์นั้น — พอครอบตลิ่งที่การขุดร่องสร้างขึ้น
+STREAM_CLIFF_REACH = 2
+
+
+def stream_cliff_minimum(flowing_water, reach=STREAM_CLIFF_REACH,
+                         normal=2, near_stream=STREAM_CLIFF_MIN_DROP):
+    """เกณฑ์ความสูงหน้าผาต่อ cell — สูงขึ้นเฉพาะรอบลำน้ำ"""
+    near = np.asarray(flowing_water, dtype=bool).copy()
+    for _ in range(max(0, int(reach))):
+        grown = near.copy()
+        grown[1:] |= near[:-1]
+        grown[:-1] |= near[1:]
+        grown[:, 1:] |= near[:, :-1]
+        grown[:, :-1] |= near[:, 1:]
+        near = grown
+    return np.where(near, int(near_stream), int(normal)).astype(np.int16)
 
 
 _BEDROCK_KEYS = (
@@ -992,7 +1024,17 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                 )
     level_adjusted = lake_full[sx, sz]
     y = adjusted_full[sx, sz]
-    cliff_face_depth = cliff_face_depths(adjusted_full)[sx, sz]
+    # ริมลำน้ำใช้เกณฑ์หน้าผาสูงกว่าที่อื่น ไม่งั้นตลิ่งที่เกิดจากการขุดร่องจะถูก
+    # ทาเป็นชั้นหินลายทางทั้งสาย (ดู STREAM_CLIFF_MIN_DROP)
+    stream_full = (
+        np.zeros(surf_y.shape, dtype=bool)
+        if flowing_water_mask is None
+        else np.asarray(flowing_water_mask, dtype=bool)
+    )
+    cliff_minimum = stream_cliff_minimum(stream_full)
+    cliff_face_depth = cliff_face_depths(
+        adjusted_full, minimum_drop=cliff_minimum
+    )[sx, sz]
     cliff_face_depth[water_mask | ice_mask] = 0
 
     surface_id = np.take(
