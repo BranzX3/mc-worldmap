@@ -105,6 +105,42 @@ class SectionShapeTests(unittest.TestCase):
             "ไถหน้าผาลงมาหาระดับน้ำ",
         )
 
+    def test_no_step_is_left_at_the_edge_of_the_shaped_band(self):
+        """ขอบแถบที่เราดัด ต้องกลืนกับพื้นเดิม ไม่ใช่จบด้วยผนัง
+
+        เพดานการกดแบบตัดจบทิ้งผนังไว้ตรงรอยต่อ — วัดที่ hill_junction ได้ขั้น
+        >=3 ที่ขอบแถบ 3,259 จุด ซึ่งคือรอยที่ตาอ่านว่า "ถูกเจาะ"
+        """
+        # ผังต้องสมจริง: พื้นลาดลง *ตามทิศน้ำ* และผิวน้ำเกาะพื้น (ต่ำกว่า 1 บล็อก)
+        # เหมือน profile จริงที่วัดได้ (p50 ต่ำกว่า DEM 1 บล็อก)
+        # ฟิกซ์เจอร์เดิมตั้งผิวน้ำคงที่ขวางเนิน = น้ำอยู่ใต้ดิน 7 บล็อกที่ต้นสาย
+        terrain = np.zeros((30, 30), dtype=np.int32)
+        terrain[:] = (140 - np.arange(30, dtype=np.int32))[:, None]
+        profile = straight_profile(top=139, x=15, length=26, drop=1.0)
+        plan = CS.plan_from_profile(
+            profile, terrain, np.full((30, 30), 1.0),
+        )
+
+        out = CS.stamp_sections([plan], terrain)
+        shaped = out["terrain"]
+        touched = np.abs(shaped - terrain) > 1
+
+        # ตัดหัวท้ายของเส้นออกจากการนับ: ที่ต้นสาย/ปลายสายลำน้ำต้องเริ่มจากที่ไหน
+        # สักที่อยู่แล้ว การเฟด (END_FADE_SAMPLES) ลดขั้นตรงนั้นให้เหลือ 1 จุด
+        # แต่กำจัดไม่ได้ทั้งหมดเพราะ profile จบลงกลางเนินจริง ๆ
+        interior = np.zeros(shaped.shape, dtype=bool)
+        interior[8:-8, :] = True
+
+        steps = 0
+        for dst, src in (
+            (np.s_[1:, :], np.s_[:-1, :]), (np.s_[:, 1:], np.s_[:, :-1]),
+        ):
+            edge = touched[dst] & ~touched[src] & interior[dst]
+            steps += int((edge & (np.abs(shaped[dst] - shaped[src]) >= 3)).sum())
+        self.assertEqual(
+            steps, 0, "ยังมีผนังตรงรอยต่อกับพื้นเดิมกลางสาย",
+        )
+
     def test_lower_stream_wins_where_two_sections_meet(self):
         """จุดบรรจบ: น้ำต้องอยู่ที่ระดับของสายที่ต่ำกว่า ไม่ใช่ลอยอยู่เหนือกัน"""
         terrain = np.full((24, 24), 120, dtype=np.int32)

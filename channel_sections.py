@@ -68,6 +68,11 @@ BANK_MAX_CUT = 6
 SHORE_MAX_CUT = 4
 # แอ่งลึกกว่าเพดานปกติได้อีกเท่านี้ — เป็นความตั้งใจ ไม่ใช่การรั่วของเพดาน
 POOL_EXTRA_DEPTH = 1
+# ปลายทั้งสองข้างของแต่ละเส้นต้องค่อย ๆ จางเข้าหาพื้นเดิมกี่ sample
+#
+# ถ้าไม่จาง ลำน้ำจะ "โผล่" ขึ้นมาเป็นหลุมลึกทันทีที่ cell แรก — ต้นสายของลำธาร
+# (และปลายเส้นที่ถูกตัดด้วยขอบ patch) จึงกลายเป็นบ่อสี่เหลี่ยมกลางเนิน
+END_FADE_SAMPLES = 4
 
 
 def bed_depth_across(offset, half_width, max_depth):
@@ -205,6 +210,14 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH):
     reach = np.clip(
         np.rint(np.ceil(half) + SHORE_BLOCKS + need), 1, MAX_BANK_BLOCKS
     ).astype(np.int32)
+    # จางเข้าหาพื้นเดิมที่ปลายทั้งสองข้าง
+    index = np.arange(gx.size)
+    edge = np.minimum(index, gx.size - 1 - index).astype(np.float32)
+    fade = np.clip(edge / max(1.0, float(END_FADE_SAMPLES)), 0.0, 1.0)
+    bed = np.maximum(1, np.rint(bed * fade).astype(np.int32))
+    half = np.maximum(0.5, half * np.maximum(fade, 0.5))
+    reach = np.maximum(1, np.rint(reach * np.maximum(fade, 0.3))).astype(np.int32)
+
     kind = np.full(gx.shape, int(profile["kind"]), dtype=np.uint8)
     return SectionPlan(gx, gz, stage, half, bed, local, kind, reach)
 
@@ -270,6 +283,7 @@ def stamp_sections(plans, terrain, protect=None):
             stage, half = stage[take], half[take]
             bed_max, slope = bed_max[take], slope[take]
             line_kind = line_kind[take]
+            reach_here = plan.reach[active][ok][take].astype(np.float32)
             owner_offset[pz, px] = step
 
             wet = step <= np.maximum(half, 0.5)
@@ -297,11 +311,39 @@ def stamp_sections(plans, terrain, protect=None):
                 # (กันน้ำรั่ว) — สองทิศทางนี้คือทั้งหมดที่ระบบนี้แก้ภูมิประเทศ
                 current = shaped[dz, dx]
                 # ชายฝั่ง (ติดน้ำ) ยอมให้กดลึกกว่าตลิ่ง — มันคือส่วนของลำน้ำเอง
-                in_shore = step <= np.maximum(half[dryside], 0.5) + SHORE_BLOCKS
-                budget = np.where(in_shore, SHORE_MAX_CUT, BANK_MAX_CUT)
-                top = np.maximum(top, current - budget)
-                seal = np.minimum(
-                    stage[dryside] + SHORE_RISE, current + SEAL_MAX_RAISE
+                shore_end = np.maximum(half[dryside], 0.5) + SHORE_BLOCKS
+                in_shore = step <= shore_end
+                # เพดานการกดต้อง **เฟดเป็นศูนย์ที่ขอบแถบ** ไม่ใช่ตัดจบ
+                #
+                # ตัดจบทำให้เกิดผนังตรงรอยต่อกับพื้นเดิม — วัดที่ hill_junction
+                # ได้ขั้น >=3 ที่ขอบแถบ 3,259 จุด และ 2,250 cell ถูกกดชนเพดาน 6
+                # พอดี ซึ่งคือรอยที่ตาอ่านว่า "ของถูกเจาะ" ไม่ใช่ภูมิประเทศ
+                span = np.maximum(1.0, reach_here[dryside] - shore_end)
+                fade = np.clip(
+                    (reach_here[dryside] - step) / span, 0.0, 1.0
+                )
+                # ต้องลดลงเรื่อย ๆ ออกไปข้างนอก ไม่ใช่กระโดดขึ้น: ถ้าตลิ่งถูกกด
+                # ลึกกว่าชายฝั่ง จะได้แอ่งคั่นกลางแทนที่จะเป็นทางลาดต่อเนื่อง
+                budget = np.minimum(
+                    BANK_MAX_CUT,
+                    np.where(in_shore, SHORE_MAX_CUT, SHORE_MAX_CUT * fade),
+                )
+                top = np.maximum(top, current - budget.astype(np.int32))
+                # ยกกันน้ำรั่วได้ **เฉพาะในแถบชายฝั่ง** เท่านั้น
+                #
+                # เดิมยกได้ทั้งแถบตลิ่ง ผลคือ cell ที่อยู่ห่างน้ำ 7-8 บล็อกและต่ำ
+                # กว่าผิวน้ำถูกยกขึ้นมาเป็น "คันดิน" ยาวขนานลำน้ำ แล้วขอบนอกของ
+                # คันนั้นก็กลายเป็นผนัง 3 บล็อกกับพื้นเดิม (บั๊กเดียวกับสันดินรอบ
+                # ทะเลสาบที่เคยแก้ไปแล้วในสถาปัตยกรรมเก่า)
+                #
+                # ถ้าน้ำจะรั่วออกนอกแถบชายฝั่งจริง แปลว่า profile วางน้ำผิดที่
+                # ตั้งแต่แรก — ปล่อยให้ metric `dry_bank_below_water` ฟ้อง
+                seal = np.where(
+                    in_shore,
+                    np.minimum(
+                        stage[dryside] + SHORE_RISE, current + SEAL_MAX_RAISE
+                    ),
+                    current,
                 )
                 shaped[dz, dx] = np.where(
                     current > top, top, np.maximum(current, seal)

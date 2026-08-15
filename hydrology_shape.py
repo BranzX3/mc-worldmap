@@ -1415,6 +1415,31 @@ def shape_standing_water_patch(
             out=terrain, where=~body,
         )
 
+        # ---- ชายฝั่งทะเลสาบ ----
+        #
+        # หลักการเดียวกับลำน้ำ (ดู channel_sections): วงแรกรอบผืนน้ำต้องเป็นที่ราบ
+        # ที่เหยียบได้ ไม่ใช่ผนังตั้งชนน้ำ  ผู้ใช้ชี้จากภาพในเกมว่าลำน้ำเป็นรอยผ่า
+        # ส่วนที่ `lake_mouth` วัดได้ว่าขอบน้ำ **57% เป็นผนังตั้ง** ชายฝั่งแค่ 43%
+        #
+        # ต้องมา *หลัง* clip เพราะชายฝั่งเป็นส่วนหนึ่งของผืนน้ำ ไม่ใช่การขยับตลิ่ง
+        # จึงไม่อยู่ใต้เพดาน MAX_LAKE_BANK_ADJUST เหมือนกัน (เหตุผลเดียวกับที่
+        # ลำน้ำแยก SHORE_MAX_CUT ออกจาก BANK_MAX_CUT)
+        ring = ndimage.binary_dilation(
+            body, structure=ndimage.generate_binary_structure(2, 2),
+            iterations=CS.SHORE_BLOCKS,
+        ) & ~body
+        if ring.any():
+            beach = near_stage + CS.SHORE_RISE
+            current = terrain[ring]
+            target = beach[ring]
+            terrain[ring] = np.where(
+                current > target,
+                np.maximum(target, current - CS.SHORE_MAX_CUT),
+                np.maximum(
+                    current, np.minimum(target, current + CS.SEAL_MAX_RAISE)
+                ),
+            )
+
     return {
         "terrain_y": terrain.astype(np.int16),
         "standing_water_mask": body,
@@ -1527,22 +1552,17 @@ def shape_waterway_sections(
 
     # ผืนน้ำกว้างที่ OSM แมปไว้แต่อยู่ไกล centerline ใช้ terrain ท้องถิ่นเป็นผิวน้ำ
     # (LiDAR ยิงไม่ทะลุน้ำ ค่าที่อ่านได้จึงเป็นผิวน้ำอยู่แล้ว) เหมือนของเดิม
+    # `flowing_body` = polygon ของ OSM ที่ไม่ผ่านเกณฑ์น้ำนิ่ง
+    #
+    # วัดทั้งแผนที่แล้วได้ **0 cell** — polygon ทุกผืนถูกจัดเป็นน้ำนิ่งหมด เคยเขียน
+    # template แยกสำหรับผืนพวกนี้แล้วพบว่าไม่เคยถูกเรียกเลย จึงถอดออกและเหลือ
+    # ทางสำรองสั้น ๆ ไว้เผื่อข้อมูลเปลี่ยน (ระดับ = terrain ท้องถิ่น เพราะ LiDAR
+    # ยิงไม่ทะลุน้ำ ค่าที่อ่านได้จึงเป็นผิวน้ำอยู่แล้ว)
     wide = flowing_body & ~way & ~body
     if wide.any():
         way = way | wide
         surface = np.where(wide, base_y, surface).astype(np.int16)
-        # ก้นของผืนน้ำกว้างต้องลาดจากฝั่งลงหากลาง ไม่ใช่ลึก 1 เท่ากันทั้งผืน
-        # (วัดที่ lake_mouth ได้ก้นแบน 86% ซึ่งคือ "พื้นน้ำลวก ๆ" ที่ผู้ใช้เห็น)
-        edge = ndimage.distance_transform_edt(wide | way).astype(np.float32)
-        zz, xx = np.nonzero(wide)
-        wobble = np.zeros(expected, dtype=np.float32)
-        wobble[zz, xx] = CS.thalweg_depth(
-            xx + x0, zz + z0, np.zeros(zz.shape, dtype=np.float32)
-        ) - 1.0
-        wide_depth = np.clip(
-            np.rint(edge + wobble), 1, CS.MAX_BED_DEPTH
-        ).astype(np.uint8)
-        depth = np.where(wide, np.maximum(depth, wide_depth), depth).astype(np.uint8)
+        depth = np.where(wide, np.maximum(depth, 1), depth).astype(np.uint8)
         kind = np.where(
             wide, np.where(source_kind > 0, source_kind, 1), kind
         ).astype(np.uint8)

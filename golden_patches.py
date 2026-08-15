@@ -485,6 +485,11 @@ def patch_metrics(patch, base_terrain):
 
     delta = np.where(core, delta, 0)
     depth = np.asarray(patch["depth"], dtype=np.int32)
+    lake = (
+        np.asarray(patch["standing_water_mask"], dtype=bool)
+        if "standing_water_mask" in getattr(patch, "files", patch)
+        else np.zeros(water.shape, dtype=bool)
+    )
     shore, wall_edges = shore_profile(terrain, water, surface)
     edges = max(1, shore + wall_edges)
     lifted = delta > 0
@@ -513,7 +518,12 @@ def patch_metrics(patch, base_terrain):
         "shore_share": float(shore / edges),
         "bare_wall_share": float(wall_edges / edges),
         "wall_slope_ratio": wall_slope_ratio(terrain, base, water),
-        "bed_flat_share": bed_relief_share(depth, way & core),
+        # ต้องวัด **ผืนน้ำทั้งหมด** ไม่ใช่เฉพาะลำน้ำ — ทะเลสาบคือ 61% ของน้ำทั้ง
+        # แผนที่ ตัวเลขเดิมวัดแค่ `way` ที่ lake_mouth จึงรายงาน 83% จาก cell
+        # เพียง 130 ตัว ขณะที่ก้นทะเลสาบ 7,517 cell จริง ๆ แบน 27%
+        "bed_flat_share": bed_relief_share(depth, water & core),
+        # ผังสังเคราะห์ในเทสต์ไม่มี standing_water_mask — ถือว่าไม่มีทะเลสาบ
+        "bed_flat_lake": bed_relief_share(depth, lake & core),
         "bank_climb_max": int(bank_steps.max()) if bank_steps.size else 0,
         # --- เทียบกับผังเดิม: ส่วนที่ "เราทำเอง" คือส่วนที่ต้องไล่ ---
         "canyon_share_dem": (
@@ -614,6 +624,7 @@ WORSE_WHEN_UP = {
     "terrain_lifted_cells", "tiny_pool_share",
     "canyon_share_excess", "bank_unwalkable_excess",
     "bare_wall_share", "wall_slope_ratio", "bed_flat_share",
+    "bed_flat_lake",
 }
 # ตัวเลขที่เป็น "บริบท" ไม่ใช่คะแนน — เปลี่ยนไปเฉย ๆ ไม่ใช่ดีหรือแย่
 NEUTRAL = {
