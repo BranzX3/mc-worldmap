@@ -517,17 +517,17 @@ class HydrologyShapeTests(unittest.TestCase):
             "การยุบหน้าตัดเปิดช่องว่างที่ envelope ปิดไปแล้ว",
         )
 
-    def test_bank_does_not_copy_every_step_of_the_water(self):
-        """ตลิ่งต้องเป็นขั้นบันไดยาว ไม่ใช่ลอกทุกขั้นของผิวน้ำมาทีละบล็อก
+    def test_every_stream_cell_has_a_shore_on_at_least_one_side(self):
+        """ทุก cell น้ำต้องมีขอบที่เหยียบได้อย่างน้อยหนึ่งฝั่ง
 
-        เพดานการกดตลิ่งเคยอิงระดับน้ำของ cell นั้นตรง ๆ ตลิ่งวงแรกจึงถูกกดลงมา
-        เสมอผิวน้ำพอดีแล้วลอกขั้นของน้ำมาทั้งหมด — วัดที่ hill_junction แล้ว
-        ขั้นตลิ่งที่ปีนไม่ได้ **ทุกจุด** อยู่ห่างน้ำแค่ 1 บล็อก และจำนวนตรงกับ
-        ขอบผิวน้ำที่ตก 2 บล็อกพอดี  ผู้เล่นเดินเลียบลำธารไม่ได้ทั้งสาย
+        invariant ของสถาปัตยกรรมหน้าตัด: ชายฝั่งเป็น *ส่วนหนึ่งของหน้าตัดที่
+        ประกาศไว้* ไม่ใช่ผลพลอยได้ของการขุด  ผู้ใช้ชี้จากภาพในเกมว่าลำธารเป็น
+        "รอยผ่า" เพราะน้ำชนผนังหินทั้งสองข้าง — วัดทั้งแผนที่ได้ 55% ของขอบน้ำ
+
+        เทสต์เดิมตรงนี้วัด "ตลิ่งลอกขั้นของน้ำ" ซึ่งผูกกับกลไก terrace ของ
+        สถาปัตยกรรมเก่าที่ถูกถอดออกไปแล้ว
         """
         size = 40
-        # ไหล่เขาลาดสม่ำเสมอ 1 บล็อก/บล็อก — ตลิ่งที่เดินได้จึงเป็นไปได้จริง
-        # (ถ้าพื้นเดิมชัน 2 บล็อก/บล็อก ตลิ่งก็ต้องชันตาม ห้ามเอาไปเป็นเกณฑ์)
         terrain = np.zeros((size, size), dtype=np.int16)
         terrain[:] = (240 - np.arange(size, dtype=np.int16))[:, None]
         body = np.zeros((size, size), dtype=bool)
@@ -558,52 +558,41 @@ class HydrologyShapeTests(unittest.TestCase):
             shutil.rmtree(source_dir, ignore_errors=True)
 
         shaped = result["terrain_y"].astype(np.int32)
-        water = result["water_mask"]
         surface = result["surface_y"].astype(np.int32)
+        way = result["waterway_mask"]
+        self.assertTrue(way.any(), "ผังทดสอบไม่มีลำน้ำ")
 
-        # ตลิ่ง = cell แห้งที่ติดน้ำ
-        bank = np.zeros(water.shape, dtype=bool)
+        core = np.zeros(way.shape, dtype=bool)
+        core[6:-6, 6:-6] = True
+        # นับที่ *ขอบน้ำ* ไม่ใช่ทุก cell — cell กลางลำน้ำไม่มีเพื่อนบ้านแห้งเป็น
+        # เรื่องปกติ (เขียนผิดรอบแรกแล้วได้ 67% ทั้งที่ขอบน้ำเป็นชายฝั่ง 100%)
+        shore = wall = 0
         for dst, src in (
             (np.s_[1:, :], np.s_[:-1, :]), (np.s_[:-1, :], np.s_[1:, :]),
             (np.s_[:, 1:], np.s_[:, :-1]), (np.s_[:, :-1], np.s_[:, 1:]),
         ):
-            bank[dst] |= (~water)[dst] & water[src]
-        self.assertTrue(bank.any(), "ผังทดสอบไม่มีตลิ่ง")
+            touch = np.zeros(way.shape, dtype=bool)
+            touch[src] = (~way)[dst] & way[src] & core[src]
+            rise = np.zeros(way.shape, dtype=np.int32)
+            rise[src] = np.where(touch[src], shaped[dst] - surface[src], 0)
+            shore += int((touch & (rise <= 1)).sum())
+            wall += int((touch & (rise >= 2)).sum())
 
-        # เดินเลียบฝั่งตามแนวลำธาร ต้องมีช่วงราบยาว ไม่ใช่ขั้นทุกบล็อก
-        column = np.flatnonzero(bank.any(axis=0))
-        runs = []
-        for x in column:
-            rows = np.flatnonzero(bank[:, x])
-            if rows.size < 6:
-                continue
-            values = shaped[rows, x]
-            steps = np.abs(np.diff(values))
-            runs.append((steps <= 1).mean())
-        self.assertTrue(runs, "ไม่มีแนวตลิ่งยาวพอให้วัด")
+        self.assertGreater(shore + wall, 0, "ไม่มีขอบน้ำให้วัด")
+        share = shore / (shore + wall)
         self.assertGreaterEqual(
-            float(np.mean(runs)), 0.75,
-            "ตลิ่งยังกระโดดเกิน 1 บล็อกถี่เกินไป — เดินเลียบลำธารไม่ได้",
+            share, 0.9,
+            f"ขอบน้ำเป็นชายฝั่งแค่ {share:.0%} — ที่เหลือคือผนังชนน้ำ",
         )
 
-        # และต้องไม่กดตลิ่งจนต่ำกว่าผิวน้ำ (น้ำรั่ว)
-        leaks = 0
-        for dst, src in (
-            (np.s_[1:, :], np.s_[:-1, :]), (np.s_[:-1, :], np.s_[1:, :]),
-            (np.s_[:, 1:], np.s_[:, :-1]), (np.s_[:, :-1], np.s_[:, 1:]),
-        ):
-            leaks += int((
-                bank[dst] & water[src] & (shaped[dst] < surface[src])
-            ).sum())
-        self.assertEqual(leaks, 0, "ตลิ่งต่ำกว่าผิวน้ำ = น้ำรั่ว")
+    def test_shaping_is_deterministic_and_cross_sections_are_flat(self):
+        """สองสิ่งที่สถาปัตยกรรมใหม่รับประกัน *โดยโครงสร้าง*
 
-    def test_surface_is_settled_when_the_patch_is_returned(self):
-        """ผลที่คืนออกมาต้อง **นิ่งแล้ว** — รันกฎเดิมซ้ำต้องไม่เปลี่ยนอะไร
+        1. ผลเหมือนเดิมทุกครั้ง — ไม่มีลูปที่จบก่อนลู่เข้าให้ผลขึ้นกับจำนวนรอบ
+        2. ผิวน้ำในหน้าตัดเดียวกันเท่ากัน เพราะแจกค่าเดียวทั้งหน้าตัด
 
-        envelope กับการยุบหน้าตัดวนกันจนลู่เข้า แต่ถ้าลูปจบก่อนนิ่ง ผลที่ได้จะมี
-        ขั้น 1-2 บล็อกวิ่งขนานลำน้ำค้างไว้เงียบ ๆ โดยไม่มีอะไรฟ้อง — วัดที่
-        flat_river แล้วรันการยุบซ้ำบนผลสุดท้ายยังเปลี่ยนอีก 237 cell
-        ต้นเหตุคือ cell ปากน้ำถูก pin ยกขึ้นทุกรอบแล้ว envelope กดกลับทุกรอบ
+        เทสต์เดิมตรวจว่า `flatten_cross_sections` รันซ้ำแล้วไม่เปลี่ยน ซึ่งเป็น
+        กฎของสถาปัตยกรรมเก่าที่ถูกถอดออกไปแล้ว
         """
         size = 44
         terrain = np.full((size, size), 200, dtype=np.int16)
@@ -612,9 +601,7 @@ class HydrologyShapeTests(unittest.TestCase):
         body = np.zeros((size, size), dtype=bool)
         body[size - 8:, :] = True
         points_z = np.arange(2, size - 6, dtype=np.float32)
-        points_x = (
-            size / 2 + 2.0 * np.sin(points_z / 5.0)
-        ).astype(np.float32)
+        points_x = (size / 2 + 2.0 * np.sin(points_z / 5.0)).astype(np.float32)
         sources = {
             "waterbody_mask": body,
             "waterway_kind": np.zeros((size, size), dtype=np.uint8),
@@ -630,24 +617,35 @@ class HydrologyShapeTests(unittest.TestCase):
             H.HERE = source_dir
             np.save(os.path.join(source_dir, "terrain_y.npy"), terrain)
             with contextlib.redirect_stdout(io.StringIO()):
-                result = H.shape_hydrology_patch(
-                    terrain, sources, 0, size, 0, size,
-                )
+                first = H.shape_hydrology_patch(terrain, sources, 0, size, 0, size)
+                second = H.shape_hydrology_patch(terrain, sources, 0, size, 0, size)
         finally:
             H.HERE = original_here
             shutil.rmtree(source_dir, ignore_errors=True)
 
-        surface = result["surface_y"]
-        way = result["waterway_mask"]
-        self.assertTrue(way.any(), "ผังทดสอบไม่มีลำน้ำ")
+        for key in ("surface_y", "terrain_y", "depth"):
+            np.testing.assert_array_equal(
+                first[key], second[key], err_msg=f"{key} ไม่ deterministic"
+            )
 
-        # ต้องรันด้วยพารามิเตอร์ชุดเดียวกับ pipeline ไม่งั้นจะอ่านผลของ *คนละกฎ*
-        # ว่าเป็นความไม่นิ่ง (เคยพลาดมาแล้วตอนทดลองใส่ floor ให้การยุบ)
-        again = H.flatten_cross_sections(surface, way)
-        self.assertEqual(
-            int((again != surface).sum()), 0,
-            "ผิวน้ำยังไม่นิ่งตอนคืนค่า — ลูปจบก่อนลู่เข้า",
-        )
+        surface = first["surface_y"].astype(np.int32)
+        way = first["waterway_mask"]
+        self.assertTrue(way.any(), "ผังทดสอบไม่มีลำน้ำ")
+        unflat = 0
+        for arr, mask in ((surface, way), (surface.T, way.T)):
+            for i in range(arr.shape[0]):
+                idx = np.flatnonzero(mask[i])
+                if idx.size < 2:
+                    continue
+                breaks = np.flatnonzero(np.diff(idx) != 1)
+                starts = np.concatenate(([0], breaks + 1))
+                ends = np.concatenate((breaks, [idx.size - 1]))
+                for a, b in zip(starts, ends):
+                    span = idx[a:b + 1]
+                    if 2 <= span.size <= 3:
+                        run = arr[i, span]
+                        unflat += int(int(run.max()) - int(run.min()) > 1)
+        self.assertEqual(unflat, 0, "หน้าตัดสั้น ๆ ยังมีขั้นเกิน 1 บล็อก")
 
     def test_stream_descends_into_a_lake_far_below_it(self):
         """ลำธารที่ถึงทะเลสาบซึ่งอยู่ต่ำกว่ามากต้องไหลลงไปหา ไม่ใช่ค้างแล้วเสกม่าน

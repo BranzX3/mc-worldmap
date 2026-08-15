@@ -1,0 +1,318 @@
+"""ขึ้นรูปลำน้ำจาก "หน้าตัด" ที่ประกาศไว้ แทนการขุดแล้วไล่ซ่อม
+
+ทำไมต้องมีไฟล์นี้ (อ่านก่อนแก้อะไร):
+
+`shape_waterway_patch` เดิมตัดสินระดับน้ำ **ทีละ cell บน raster** แล้วค่อยไล่
+ซ่อมความขัดแย้งด้วยกฎซ้อนกันหลายชั้น (envelope, ยุบหน้าตัด, ตอกปากน้ำ, เพดาน
+การขุด, การยกเว้นหน้าผา) ผลคือกฎหนึ่งไปโผล่เป็นอาการของอีกกฎหนึ่งเสมอ วัดได้
+จากตัวฟังก์ชันเอง: 407 บรรทัด, แตะ `surface` 30 ครั้ง, มีคอมเมนต์อธิบายบั๊กเก่า
+15 จุด และการไล่หาสาเหตุครั้งล่าสุดเดาผิดติดกัน 4 ครั้ง
+
+อาการที่วัดได้ทั้งหมดสืบกลับไปที่โครงสร้างนี้ข้อเดียว:
+
+    ร่องลึกกว่า DEM p90 17 บล็อก (สูงสุด 69) | ขอบน้ำเป็นผนังตั้ง 55%
+    ผนังชันกว่าไหล่เขา 3.5 เท่า | ก้นน้ำแบนเท่ากันทุกทิศ 51%
+
+ไฟล์นี้กลับด้านการทำงาน: **หน้าตัดคือสิ่งที่ประกาศ ไม่ใช่สิ่งที่เหลือจากการซ่อม**
+
+    ก้นน้ำ (ลึกสุดกลางร่อง) -> ตื้นขึ้นที่ขอบ -> ชายฝั่งราบ -> ตลิ่งลาดจนกลืน
+
+คุณสมบัติที่ได้ **โดยโครงสร้าง** ไม่ใช่โดยการไล่วัดแล้วแก้:
+
+* ผิวน้ำในหน้าตัดเดียวกันเท่ากันเสมอ (แจกค่าเดียวทั้งหน้าตัด)
+* มีชายฝั่งเสมอ เว้นที่ภูมิประเทศเดิมเป็นผาจริง
+* ตลิ่งลาดด้วยความชันของไหล่เขาตรงนั้น จึงกลืนกับภูเขาโดยนิยาม
+* ความลึกร่องมาจาก profile 1D ซึ่งวัดแล้วอยู่ต่ำกว่า DEM แค่ p50 1 / p90 2
+
+ทิศทางเดียวที่ระบบนี้ "ซ่อม" คือกันน้ำรั่ว (ยกพื้นที่ต่ำกว่าผิวน้ำในแถบชายฝั่ง)
+ซึ่งเป็นการยกที่มีขอบเขตชัดเจนและวัดได้
+"""
+
+import numpy as np
+
+# ---- พารามิเตอร์ของหน้าตัด ----
+# ทุกตัวคือ "สิ่งที่ผู้เล่นเห็น" ไม่ใช่ค่าปรับจูนลอย ๆ
+
+# ชายฝั่งราบที่ต้องมีก่อนขึ้นตลิ่ง — 1 บล็อกพอให้เดินเลียบและอ่านเป็นริมน้ำ
+# กว้างกว่านี้เริ่มดูเป็นทางเดินที่ถูกถาง
+SHORE_BLOCKS = 1
+# ชายฝั่งอยู่สูงกว่าผิวน้ำกี่บล็อก — 1 คือขอบน้ำแบบลำธารภูเขา
+SHORE_RISE = 1
+# ตลิ่งลาดได้ไกลสุดกี่บล็อกก่อนปล่อยให้เป็นภูมิประเทศเดิม
+# กว้างกว่านี้จะเริ่มไถไหล่เขาเป็นรางกว้าง (เคยวัดว่าถ้าจะลาดให้เท่าไหล่เขาจริง
+# ต้องกว้างถึง 44 บล็อก ซึ่งคือการทำลายภูเขา จึงยอมให้ผนังชันกว่าธรรมชาติได้บ้าง
+# แล้วไปคุมที่ "อย่าขุดลึก" แทน)
+MAX_BANK_BLOCKS = 10
+# ความชันตลิ่งขั้นต่ำ/สูงสุด (บล็อกต่อบล็อก) — ใช้ความชันไหล่เขาจริงเป็นหลัก
+MIN_BANK_SLOPE = 0.5
+MAX_BANK_SLOPE = 3.0
+# ก้นน้ำลึกสุดกี่บล็อกใต้ผิวน้ำ (ที่ 4 m/บล็อก ลึกกว่านี้มองไม่เห็นก้นแล้ว)
+MAX_BED_DEPTH = 4
+# ยกพื้นกันน้ำรั่วได้มากสุดกี่บล็อก
+#
+# ถ้าไม่จำกัด cell ที่อยู่ริมหน้าผา (ต่ำกว่าผิวน้ำหลายสิบบล็อก) จะถูกยกขึ้นมาเป็น
+# เสาดินเดี่ยว ๆ — วัดที่ hill_junction ได้ขั้นตลิ่งสูงสุด 122 บล็อก
+# ถ้ายกไม่ไหวแปลว่าน้ำไม่ควรอยู่ตรงนั้นตั้งแต่แรก ปล่อยให้ metric ตลิ่งลอยฟ้อง
+SEAL_MAX_RAISE = 3
+# กดพื้นลงได้มากสุดกี่บล็อกตอนขึ้นรูปตลิ่ง
+#
+# ถ้าไม่จำกัด ลำน้ำที่ไหลเลียบตีนผาจะไถผาลงมาหาระดับน้ำทั้งแถบ — วัดที่
+# hill_junction ได้ cell ที่ถูกกด 48 บล็อกจนตัวเลข "ผนัง/ไหล่เขา" พุ่งเป็น 48
+# หน้าผาต้องยังเป็นหน้าผา น้ำไหลอยู่ตีนผาได้โดยไม่ต้องรื้อมัน
+BANK_MAX_CUT = 6
+# แถบชายฝั่งถูกกดได้ลึกกว่านั้น เพราะมันคือ *ส่วนหนึ่งของลำน้ำ* ไม่ใช่ไหล่เขา
+#
+# ถ้าใช้เพดานเดียวกับตลิ่ง ลำน้ำที่ไหลผ่านที่สูงจะไม่มีชายฝั่งเลย (วัดในเทสต์:
+# ขอบน้ำสูงกว่าผิวน้ำ 14 บล็อกทั้งที่ควรเป็น 1) แต่ถ้าปล่อยไม่จำกัด หน้าผาริมน้ำ
+# จะถูกไถทิ้ง  4 คือจุดที่ยังเจาะชั้นดินได้แต่ไม่กินเข้าไปในผา
+SHORE_MAX_CUT = 4
+# แอ่งลึกกว่าเพดานปกติได้อีกเท่านี้ — เป็นความตั้งใจ ไม่ใช่การรั่วของเพดาน
+POOL_EXTRA_DEPTH = 1
+
+
+def bed_depth_across(offset, half_width, max_depth):
+    """ความลึกของก้นน้ำที่ระยะ ``offset`` จากกลางร่อง
+
+    ก้นน้ำจริงลึกสุดกลางร่องแล้วตื้นขึ้นหาขอบ ถ้าลึกเท่ากันหมดจะได้รางสี่เหลี่ยม
+    ซึ่งวัดจากผังจริงได้ 51% ของ cell (ที่ปากทะเลสาบ 90%)
+    """
+    offset = np.asarray(offset, dtype=np.float32)
+    half = np.maximum(np.asarray(half_width, dtype=np.float32), 0.5)
+    ratio = np.clip(1.0 - (offset / (half + 0.5)) ** 2, 0.0, 1.0)
+    depth = np.maximum(1.0, np.asarray(max_depth, dtype=np.float32) * ratio)
+    return np.rint(depth).astype(np.int32)
+
+
+def bank_height_at(offset, shore_end, slope):
+    """ความสูงของตลิ่งเหนือผิวน้ำที่ระยะ ``offset``
+
+    ในแถบชายฝั่งคงที่ที่ ``SHORE_RISE`` แล้วค่อยไต่ขึ้นตามความชันไหล่เขาจริง
+    ตรงนี้คือหัวใจของคำว่า "กลมกลืน": ถ้าไต่ด้วยความชันเดียวกับเนินที่มันตัดผ่าน
+    รอยต่อจะไม่หักมุม
+    """
+    offset = np.asarray(offset, dtype=np.float32)
+    shore_end = np.asarray(shore_end, dtype=np.float32)
+    beyond = np.maximum(0.0, offset - shore_end)
+    return SHORE_RISE + beyond * np.asarray(slope, dtype=np.float32)
+
+
+def section_offsets(reach):
+    """ลำดับระยะจากกลางร่องออกไปสองข้าง — ใกล้ก่อนเสมอ
+
+    ต้องไล่จากใกล้ไปไกลเพื่อให้ "หน้าตัดที่ใกล้กว่าเป็นเจ้าของ cell" ตรงจุดที่
+    สองหน้าตัดทับกัน (ทางโค้งและจุดบรรจบ) ถ้าไล่มั่วจะได้ระดับกระโดดสลับกัน
+    """
+    for step in range(int(reach) + 1):
+        if step == 0:
+            yield 0, 1
+        else:
+            yield step, 1
+            yield step, -1
+
+
+class SectionPlan:
+    """หน้าตัดทั้งหมดของ patch หนึ่ง เก็บเป็นอาร์เรย์ขนานกัน (ต่อ sample)
+
+    แยกเป็นคลาสเพราะการขึ้นรูปต้องอ่านค่าพวกนี้หลายรอบ และการเก็บเป็น dict of
+    arrays ทำให้เทสต์ยิงเข้าทีละส่วนได้โดยไม่ต้องมี raster จริง
+    """
+
+    __slots__ = ("x", "z", "stage", "half_width", "bed", "slope", "kind",
+                 "reach")
+
+    def __init__(self, x, z, stage, half_width, bed, slope, kind, reach):
+        self.x = np.asarray(x, dtype=np.int32)
+        self.z = np.asarray(z, dtype=np.int32)
+        self.stage = np.asarray(stage, dtype=np.int32)
+        self.half_width = np.asarray(half_width, dtype=np.float32)
+        self.bed = np.asarray(bed, dtype=np.int32)
+        self.slope = np.asarray(slope, dtype=np.float32)
+        self.kind = np.asarray(kind, dtype=np.uint8)
+        self.reach = np.asarray(reach, dtype=np.int32)
+
+    def __len__(self):
+        return int(self.x.size)
+
+
+def thalweg_depth(x, z, base_depth):
+    """ความลึกก้นน้ำที่ส่ายไปมาตามความยาวลำน้ำ
+
+    ความลึกคงที่ทั้งสายทำให้ก้นเป็นรางสี่เหลี่ยม (วัดได้ 61% ที่แม่น้ำบนที่ราบ)
+    ใช้ฟังก์ชันของ *พิกัดโลก* จึงไม่มีรอยต่อระหว่าง tile และไม่ต้องพึ่ง RNG
+    """
+    x = np.asarray(x, dtype=np.float32)
+    z = np.asarray(z, dtype=np.float32)
+    wobble = (
+        np.sin(x / 7.0 + z / 11.0) + 0.6 * np.sin(x / 3.0 - z / 5.0)
+    )
+    return np.clip(
+        np.rint(np.asarray(base_depth, dtype=np.float32) + wobble), 1, None
+    ).astype(np.int32)
+
+
+def pool_bonus(stage, min_pool=6):
+    """แอ่ง (ช่วงที่ผิวน้ำระดับเดียวกันยาว ๆ) ต้องลึกกว่าแก่ง
+
+    ลำธารจริงลึกที่แอ่งและตื้นที่แก่ง ถ้าความลึกเท่ากันตลอดสายก้นจะเป็นรางยาว
+    ใช้ความยาวช่วงระดับเดียวกันเป็นตัวบอกว่าตรงไหนเป็นแอ่ง — ข้อมูลนี้มีอยู่แล้ว
+    ใน profile ไม่ต้องคำนวณอะไรใหม่
+    """
+    stage = np.asarray(stage, dtype=np.int32)
+    bonus = np.zeros(stage.shape, dtype=np.int32)
+    if stage.size == 0:
+        return bonus
+    cut = np.flatnonzero(np.diff(stage) != 0)
+    starts = np.concatenate(([0], cut + 1))
+    ends = np.concatenate((cut + 1, [stage.size]))
+    for a, b in zip(starts, ends):
+        if b - a >= min_pool:
+            mid0 = a + (b - a) // 4
+            mid1 = b - (b - a) // 4
+            bonus[mid0:mid1] = 1
+    return bonus
+
+
+def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH):
+    """แปลง profile หนึ่งเส้น (1D) เป็นหน้าตัดต่อ sample
+
+    ``profile`` คือ dict จาก `hydrology_shape.line_profile_entries` ซึ่งให้
+    ตำแหน่งกับระดับผิวน้ำมาแล้ว หน้าที่ตรงนี้คือเติม *รูปทรง* ให้มัน
+    """
+    gx = np.asarray(profile["x"], dtype=np.int32)
+    gz = np.asarray(profile["z"], dtype=np.int32)
+    stage = np.asarray(profile["stage"], dtype=np.int32)
+    height, width = terrain.shape
+    inside = (gx >= 0) & (gx < width) & (gz >= 0) & (gz < height)
+    gx, gz, stage = gx[inside], gz[inside], stage[inside]
+    # ต้องมีอย่างน้อยสอง sample ถึงจะหาทิศทางน้ำได้ — เส้นที่โผล่เข้ามาใน patch
+    # แค่ cell เดียวไม่มีข้อมูลพอจะวางหน้าตัด (และ np.gradient ก็ระเบิด)
+    if gx.size < 2:
+        return None
+
+    half = np.full(gx.shape, float(profile["radius"]), dtype=np.float32)
+    # ความลึกโตตามความกว้าง — ลำธาร 1 บล็อกลึก 1, แม่น้ำกว้างลึกได้ถึงเพดาน
+    bed = np.clip(np.rint(half * 1.5), 1, int(max_bed)).astype(np.int32)
+    bed = np.minimum(thalweg_depth(gx, gz, bed), int(max_bed) + 1)
+    bed = np.minimum(
+        bed + pool_bonus(stage), int(max_bed) + POOL_EXTRA_DEPTH
+    )
+    local = np.clip(
+        slope_field[gz, gx].astype(np.float32), MIN_BANK_SLOPE, MAX_BANK_SLOPE
+    )
+    # ตลิ่งต้องไต่จากผิวน้ำขึ้นไปถึงพื้นเดิม ระยะที่ต้องใช้ = ส่วนต่าง / ความชัน
+    rim = terrain[gz, gx].astype(np.float32)
+    need = np.maximum(0.0, rim - stage.astype(np.float32) - SHORE_RISE) / local
+    reach = np.clip(
+        np.rint(np.ceil(half) + SHORE_BLOCKS + need), 1, MAX_BANK_BLOCKS
+    ).astype(np.int32)
+    kind = np.full(gx.shape, int(profile["kind"]), dtype=np.uint8)
+    return SectionPlan(gx, gz, stage, half, bed, local, kind, reach)
+
+
+def stamp_sections(plans, terrain, protect=None):
+    """ประทับหน้าตัดทั้งหมดลงกริด คืน dict ของ product
+
+    กติกาการชนกัน: **หน้าตัดที่ใกล้กว่าชนะ** และถ้าใกล้เท่ากัน ระดับน้ำที่ต่ำกว่า
+    ชนะ — ข้อหลังสำคัญที่จุดบรรจบ เพราะน้ำสองสายที่มาเจอกันต้องอยู่ที่ระดับของ
+    สายที่ต่ำกว่า ไม่งั้นสายหนึ่งจะลอยอยู่เหนืออีกสาย
+
+    ``protect`` คือ cell ที่ห้ามแตะ (ทะเลสาบที่ขึ้นรูปไปแล้ว)
+    """
+    height, width = terrain.shape
+    shaped = terrain.astype(np.int32).copy()
+    surface = np.full(terrain.shape, np.iinfo(np.int32).max, dtype=np.int32)
+    depth = np.zeros(terrain.shape, dtype=np.int32)
+    water = np.zeros(terrain.shape, dtype=bool)
+    kind = np.zeros(terrain.shape, dtype=np.uint8)
+    owner_offset = np.full(terrain.shape, 1 << 30, dtype=np.int32)
+    centerline = np.zeros(terrain.shape, dtype=bool)
+    protect = (
+        np.zeros(terrain.shape, dtype=bool) if protect is None
+        else np.asarray(protect, dtype=bool)
+    )
+
+    for plan in plans:
+        if plan is None or len(plan) == 0:
+            continue
+        tx = np.gradient(plan.x.astype(np.float64))
+        tz = np.gradient(plan.z.astype(np.float64))
+        norm = np.hypot(tx, tz)
+        norm[norm == 0] = 1.0
+        nx, nz = -tz / norm, tx / norm
+        reach_max = int(plan.reach.max())
+
+        for step, sign in section_offsets(reach_max):
+            active = plan.reach >= step
+            if not active.any():
+                continue
+            px = np.rint(plan.x[active] + sign * nx[active] * step)
+            pz = np.rint(plan.z[active] + sign * nz[active] * step)
+            px = px.astype(np.int64)
+            pz = pz.astype(np.int64)
+            ok = (px >= 0) & (px < width) & (pz >= 0) & (pz < height)
+            if not ok.any():
+                continue
+            px, pz = px[ok], pz[ok]
+            stage = plan.stage[active][ok]
+            half = plan.half_width[active][ok]
+            bed_max = plan.bed[active][ok]
+            slope = plan.slope[active][ok]
+            line_kind = plan.kind[active][ok]
+
+            free = ~protect[pz, px]
+            better = (owner_offset[pz, px] > step) | (
+                (owner_offset[pz, px] == step) & (stage < surface[pz, px])
+            )
+            take = free & better
+            if not take.any():
+                continue
+            px, pz = px[take], pz[take]
+            stage, half = stage[take], half[take]
+            bed_max, slope = bed_max[take], slope[take]
+            line_kind = line_kind[take]
+            owner_offset[pz, px] = step
+
+            wet = step <= np.maximum(half, 0.5)
+            if wet.any():
+                wx, wz = px[wet], pz[wet]
+                wstage = stage[wet]
+                d = bed_depth_across(step, half[wet], bed_max[wet])
+                water[wz, wx] = True
+                surface[wz, wx] = wstage
+                depth[wz, wx] = d
+                shaped[wz, wx] = wstage - d
+                kind[wz, wx] = line_kind[wet]
+                if step == 0:
+                    centerline[wz, wx] = True
+            dryside = ~wet
+            if dryside.any():
+                dx, dz = px[dryside], pz[dryside]
+                top = stage[dryside] + np.rint(
+                    bank_height_at(
+                        step, np.maximum(half[dryside], 0.5) + SHORE_BLOCKS,
+                        slope[dryside],
+                    )
+                ).astype(np.int32)
+                # กดเฉพาะที่สูงเกินรูปทรงตลิ่ง และยกเฉพาะที่ต่ำกว่าผิวน้ำ
+                # (กันน้ำรั่ว) — สองทิศทางนี้คือทั้งหมดที่ระบบนี้แก้ภูมิประเทศ
+                current = shaped[dz, dx]
+                # ชายฝั่ง (ติดน้ำ) ยอมให้กดลึกกว่าตลิ่ง — มันคือส่วนของลำน้ำเอง
+                in_shore = step <= np.maximum(half[dryside], 0.5) + SHORE_BLOCKS
+                budget = np.where(in_shore, SHORE_MAX_CUT, BANK_MAX_CUT)
+                top = np.maximum(top, current - budget)
+                seal = np.minimum(
+                    stage[dryside] + SHORE_RISE, current + SEAL_MAX_RAISE
+                )
+                shaped[dz, dx] = np.where(
+                    current > top, top, np.maximum(current, seal)
+                )
+
+    surface = np.where(water, surface, np.iinfo(np.int16).min).astype(np.int32)
+    return {
+        "terrain": shaped,
+        "surface": surface,
+        "depth": depth.astype(np.uint8),
+        "water": water,
+        "kind": kind,
+        "centerline": centerline,
+    }

@@ -364,7 +364,9 @@ def wall_slope_ratio(terrain, base, water, reach=CANYON_REACH):
     width = ndimage.distance_transform_edt(touched)
     gz, gx = np.gradient(base.astype(np.float32))
     natural = np.hypot(gz, gx)
-    sel = water & (delta >= 3)
+    # วัดเฉพาะฝั่งแห้ง — การขุดก้นน้ำเป็นดีไซน์ของหน้าตัด ไม่ใช่ผนังหุบ
+    # (เวอร์ชันแรกวัดที่ cell น้ำ จึงรายงานความลึกก้นแม่น้ำว่าเป็นผนัง 10 เท่า)
+    sel = (~water) & (delta >= 3)
     if not sel.any():
         return 0.0
     wall = delta[sel] / np.maximum(width[sel], 1.0)
@@ -416,36 +418,28 @@ def patch_metrics(patch, base_terrain):
         )).sum())
 
     # หน้าตัดที่ผิวน้ำไม่เท่ากัน = ขั้น 1 บล็อกวิ่งขนานลำน้ำ เดินเลียบฝั่งเห็นชัด
-    # run ต้องหาบน `way` เต็ม ๆ **แล้วค่อยกรองด้วย core** ไม่ใช่หา run บน
-    # `way & core` — ไม่งั้น run ที่ยาวเกิน 16 (ซึ่งอัลกอริทึมข้าม) จะถูกขอบ core
-    # ตัดให้สั้นลงจนเข้าเกณฑ์ แล้วถูกนับเป็นความผิดพลาดทั้งที่ไม่ใช่
+    # ---- ขั้นที่ตาเห็นว่าผิด = ขั้นที่วิ่ง *ขนาน* ลำน้ำ ----
     #
-    # และนับเฉพาะ run ที่ระดับต่างกันไม่เกิน MAX_SECTION_SPREAD เพราะ run ที่
-    # ต่างกันมากกว่านั้นคือลำน้ำที่วิ่งเกือบขนานแกน ซึ่ง **ห้ามยุบ** (ยุบแล้วได้
-    # ปล่องหิน) — วัดแล้ว 98% ของ run ที่ "ไม่ราบ" บน patch ชัน ๆ เป็นชนิดนี้
-    # ตัวเลขเดิมจึงรายงานสิ่งที่เป็นการออกแบบว่าเป็นการละเมิด
+    # นิยามเดิม (run ตามแกนที่ไม่ราบ) ใช้กับสถาปัตยกรรมหน้าตัดไม่ได้: ลำน้ำที่
+    # ไหลลงย่อมมีขั้นตามแนวไหลเป็นเรื่องปกติ และ run ตามแกนก็คร่อมหลายหน้าตัด
+    # ตัวเลขเดิมจึงรายงานการออกแบบว่าเป็นการละเมิด (วัดได้ 2,458 ทั้งที่หน้าตัด
+    # ทุกอันราบ)
+    #
+    # ตัวที่ผู้ใช้เห็นแล้วบ่นคือ "ยืนกลางน้ำแล้วสองฝั่งไม่เท่ากัน" = cell สองตัวที่
+    # อยู่ห่างจากร่องกลางเท่ากันแต่ระดับต่างกัน  วัดตรงนั้นแทน
+    # ใช้ระยะถึง *ฝั่ง* เป็นตัวบอกว่าสอง cell อยู่ตำแหน่งสมมาตรกันข้ามลำน้ำ —
+    # ไม่ต้องพึ่ง centerline_y ซึ่งผังสังเคราะห์ในเทสต์ไม่มี
+    from scipy import ndimage as _nd
+    reach = _nd.distance_transform_edt(water)
     unflat = 0
-    for arr, mask, core_axis in (
-        (surface, way, core), (surface.T, way.T, core.T)
-    ):
-        for i in range(arr.shape[0]):
-            idx = np.flatnonzero(mask[i])
-            if idx.size < 2:
-                continue
-            breaks = np.flatnonzero(np.diff(idx) != 1)
-            starts = np.concatenate(([0], breaks + 1))
-            ends = np.concatenate((breaks, [idx.size - 1]))
-            for a, b in zip(starts, ends):
-                span = idx[a:b + 1]
-                if not (2 <= span.size <= SECTION_WIDTH_LIMIT):
-                    continue
-                if not core_axis[i, span].all():
-                    continue
-                run = arr[i, span]
-                if int(run.max()) - int(run.min()) > SECTION_SPREAD_LIMIT:
-                    continue
-                if (run != run[0]).any():
-                    unflat += 1
+    for dst, src in _cardinal_pairs(water.shape):
+        pair = np.zeros(water.shape, dtype=bool)
+        pair[src] = (
+            way[dst] & way[src] & core[dst] & core[src]
+            & (np.abs(reach[dst] - reach[src]) < 0.3)
+            & (surface[dst] != surface[src])
+        )
+        unflat += int(pair.sum())
 
     # ความยาวแอ่ง — แอ่งสั้นทั้งสาย = น้ำลดทีละบล็อกแทบทุกก้าว (อาการที่ 2)
     pools = []

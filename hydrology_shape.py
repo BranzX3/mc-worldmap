@@ -14,6 +14,7 @@ from scipy import ndimage
 
 import config as C
 import surface as S
+import channel_sections as CS
 from pipeline_progress import use_utf8_stdout
 
 
@@ -1424,6 +1425,181 @@ def shape_standing_water_patch(
     }
 
 
+USE_SECTION_CHANNEL = True
+
+
+def shape_waterway_sections(
+    base_y, sources, x0, x1, z0, z1, line_profiles=None,
+    standing_mask=None, max_surface_step=MAX_WATERFALL_DROP,
+):
+    """ขึ้นรูปลำน้ำจากหน้าตัดที่ประกาศไว้ (ดู channel_sections.py)
+
+    คืน dict คีย์ชุดเดียวกับ `shape_waterway_patch` เป๊ะ ๆ เพื่อให้ผู้บริโภคทุกตัว
+    (build_terrain / paint_surface / report) ไม่ต้องแก้อะไรเลย
+
+    ต่างจากของเดิมตรงที่ **ไม่มีขั้นตอนซ่อมสักขั้น**: ไม่มี envelope บน raster
+    ไม่มีการยุบหน้าตัด ไม่มีการตอกปากน้ำ ไม่มีเพดานการขุดกระจายสามที่ ทุกอย่าง
+    ถูกกำหนดตอนวางหน้าตัด
+    """
+    base_y = np.asarray(base_y, dtype=np.int16)
+    expected = (z1 - z0, x1 - x0)
+    if base_y.shape != expected:
+        raise ValueError("base_y shape must match patch bounds")
+
+    source_body = sources["waterbody_mask"][z0:z1, x0:x1].astype(bool)
+    body = (
+        source_body if standing_mask is None
+        else np.asarray(standing_mask, dtype=bool)
+    )
+    flowing_body = source_body & ~body
+    source_kind = sources["waterway_kind"][z0:z1, x0:x1]
+
+    if line_profiles is None:
+        full_terrain = np.load(
+            os.path.join(HERE, "terrain_y.npy"), mmap_mode="r"
+        )
+        upstream = accumulate_upstream_length(sources)
+        full_waterbody = np.asarray(sources["waterbody_mask"], dtype=bool)
+        full_slope = hillside_rise_per_block(
+            np.asarray(full_terrain), minimum=0.0
+        )
+        profiles = []
+        for line_i in _lines_intersecting(sources, x0 - 2, x1 + 2, z0 - 2, z1 + 2):
+            profiles.extend(line_profile_entries(
+                sources, line_i, full_terrain, upstream,
+                waterbody=full_waterbody, slope_field=full_slope,
+            ))
+    else:
+        profiles = line_profiles
+
+    # ความชันไหล่เขาของ patch นี้ — ตัวกำหนดว่าตลิ่งต้องลาดแค่ไหนถึงจะกลืน
+    slope_field = hillside_rise_per_block(base_y, minimum=0.0)
+    local = []
+    for profile in profiles:
+        bx0, bx1, bz0, bz1 = profile["bounds"]
+        if bx1 <= x0 - 2 or bx0 >= x1 + 2 or bz1 <= z0 - 2 or bz0 >= z1 + 2:
+            continue
+        shifted = {
+            "x": np.asarray(profile["x"], dtype=np.int32) - x0,
+            "z": np.asarray(profile["z"], dtype=np.int32) - z0,
+            "stage": profile["stage"],
+            "radius": profile["radius"],
+            "kind": profile["kind"],
+        }
+        plan = CS.plan_from_profile(shifted, base_y.astype(np.int32), slope_field)
+        if plan is not None:
+            local.append(plan)
+
+    # ---- ปากน้ำ: ลำธารต้องลงไปถึงระดับทะเลสาบจริง ----
+    #
+    # โครงสร้างเดิมทำด้วยการ "ตอก" ค่าลงบน raster แล้วต้องมีกฎยกเว้นตามมาอีกชุด
+    # ที่นี่มันเป็นแค่การแก้ stage ของ sample ท้าย ๆ ก่อนวางหน้าตัด — หน้าตัดที่
+    # ถูกวางจึงต่อเนื่องกับทะเลสาบตั้งแต่ต้น ไม่มีอะไรต้องซ่อมทีหลัง
+    if body.any():
+        lake_level = np.where(body, base_y.astype(np.int32), UNRESOLVED)
+        near_lake = ndimage.maximum_filter(lake_level, size=7)
+        touches = ndimage.binary_dilation(
+            body, structure=ndimage.generate_binary_structure(2, 2),
+            iterations=3,
+        )
+        for plan in local:
+            at_lake = touches[plan.z, plan.x]
+            if not at_lake.any():
+                continue
+            target = near_lake[plan.z, plan.x]
+            valid = at_lake & (target != UNRESOLVED)
+            if not valid.any():
+                continue
+            # ลงได้อย่างเดียว ไม่ยกขึ้น แล้วไล่ให้ช่วงเหนือขึ้นไปลาดตามอย่างต่อเนื่อง
+            plan.stage[valid] = np.minimum(plan.stage[valid], target[valid])
+            for i in range(len(plan) - 1, 0, -1):
+                plan.stage[i - 1] = min(
+                    int(plan.stage[i - 1]),
+                    int(plan.stage[i]) + int(MAX_WATERFALL_DROP),
+                )
+
+    stamped = CS.stamp_sections(local, base_y.astype(np.int32), protect=body)
+    way = stamped["water"] & ~body
+    terrain = stamped["terrain"]
+    surface = np.where(way, stamped["surface"], UNRESOLVED).astype(np.int16)
+    depth = np.where(way, stamped["depth"], 0).astype(np.uint8)
+    kind = np.where(way, stamped["kind"], 0).astype(np.uint8)
+
+    # ผืนน้ำกว้างที่ OSM แมปไว้แต่อยู่ไกล centerline ใช้ terrain ท้องถิ่นเป็นผิวน้ำ
+    # (LiDAR ยิงไม่ทะลุน้ำ ค่าที่อ่านได้จึงเป็นผิวน้ำอยู่แล้ว) เหมือนของเดิม
+    wide = flowing_body & ~way & ~body
+    if wide.any():
+        way = way | wide
+        surface = np.where(wide, base_y, surface).astype(np.int16)
+        # ก้นของผืนน้ำกว้างต้องลาดจากฝั่งลงหากลาง ไม่ใช่ลึก 1 เท่ากันทั้งผืน
+        # (วัดที่ lake_mouth ได้ก้นแบน 86% ซึ่งคือ "พื้นน้ำลวก ๆ" ที่ผู้ใช้เห็น)
+        edge = ndimage.distance_transform_edt(wide | way).astype(np.float32)
+        zz, xx = np.nonzero(wide)
+        wobble = np.zeros(expected, dtype=np.float32)
+        wobble[zz, xx] = CS.thalweg_depth(
+            xx + x0, zz + z0, np.zeros(zz.shape, dtype=np.float32)
+        ) - 1.0
+        wide_depth = np.clip(
+            np.rint(edge + wobble), 1, CS.MAX_BED_DEPTH
+        ).astype(np.uint8)
+        depth = np.where(wide, np.maximum(depth, wide_depth), depth).astype(np.uint8)
+        kind = np.where(
+            wide, np.where(source_kind > 0, source_kind, 1), kind
+        ).astype(np.uint8)
+        terrain = np.where(wide, base_y.astype(np.int32) - 1, terrain)
+
+    # ---- น้ำตก ----
+    # ในโครงสร้างนี้ขั้นใหญ่มาจาก profile เท่านั้น (ซึ่งปลดล็อกเฉพาะที่หน้าผาจริง)
+    # จึงไม่ต้องมี mask ยกเว้นสองชุดที่เคยไม่ตรงกันอีก — **ทุกขั้น >= 3 ได้ม่าน**
+    waterfall_lip = np.zeros(expected, dtype=bool)
+    waterfall_foot = np.zeros(expected, dtype=bool)
+    waterfall_drop = np.zeros(expected, dtype=np.uint8)
+    for dst, src in (
+        (np.s_[1:, :], np.s_[:-1, :]),
+        (np.s_[:-1, :], np.s_[1:, :]),
+        (np.s_[:, 1:], np.s_[:, :-1]),
+        (np.s_[:, :-1], np.s_[:, 1:]),
+    ):
+        connected = way[dst] & way[src]
+        drop = surface[src].astype(np.int32) - surface[dst].astype(np.int32)
+        falling = connected & (drop >= 3)
+        waterfall_lip[src] |= falling
+        waterfall_foot[dst] |= falling
+        waterfall_drop[dst] = np.maximum(
+            waterfall_drop[dst], np.where(falling, drop, 0).astype(np.uint8)
+        )
+    waterfall_top = np.full(expected, UNRESOLVED, dtype=np.int16)
+    waterfall_top[waterfall_foot] = (
+        surface[waterfall_foot].astype(np.int32)
+        + waterfall_drop[waterfall_foot].astype(np.int32)
+    ).astype(np.int16)
+    waterfall_pool = (
+        ndimage.binary_dilation(
+            waterfall_foot, structure=ndimage.generate_binary_structure(2, 1)
+        ) & way & ~waterfall_lip
+    )
+    depth = np.where(
+        waterfall_pool, np.maximum(depth, 3), depth
+    ).astype(np.uint8)
+    terrain = np.where(way, surface.astype(np.int32) - depth, terrain)
+
+    return {
+        "terrain_y": terrain.astype(np.int16),
+        "waterway_mask": way,
+        "surface_y": surface,
+        "depth": depth,
+        "centerline_y": np.where(
+            stamped["centerline"] & way, surface, UNRESOLVED
+        ).astype(np.int16),
+        "waterway_kind": kind,
+        "waterfall_lip_mask": waterfall_lip,
+        "waterfall_foot_mask": waterfall_foot,
+        "waterfall_drop": waterfall_drop,
+        "waterfall_pool_mask": waterfall_pool,
+        "waterfall_top_y": waterfall_top,
+    }
+
+
 def shape_waterway_patch(
     base_y, sources, x0, x1, z0, z1, bank_width=BANK_BLEND_BLOCKS,
     line_profiles=None,
@@ -1841,7 +2017,10 @@ def shape_hydrology_patch(
         base_y, sources, x0, x1, z0, z1,
         standing_surface=standing_surface,
     )
-    flowing = shape_waterway_patch(
+    shaper = (
+        shape_waterway_sections if USE_SECTION_CHANNEL else shape_waterway_patch
+    )
+    flowing = shaper(
         standing["terrain_y"], sources, x0, x1, z0, z1,
         line_profiles=line_profiles,
         standing_mask=standing["standing_water_mask"],
