@@ -227,6 +227,10 @@ SECTION_SPREAD_LIMIT = HS.MAX_SECTION_SPREAD
 # ขอบกรอบที่ไม่เอามานับ — ต้องกว้างกว่า CANYON_REACH และกว้างพอสำหรับ halo ของ
 # hydrology เอง (GLOBAL_HALO = 24)
 CORE_MARGIN = 24
+# ขอบน้ำที่สูงกว่าผิวน้ำไม่เกินเท่านี้ = ชายฝั่งที่เหยียบได้
+SHORE_MAX_RISE = 1
+# สูงกว่าผิวน้ำตั้งแต่นี้ = ผนัง (ปีนไม่ขึ้น เดินเลียบไม่ได้)
+WALL_MIN_RISE = 2
 
 
 def _cardinal_pairs(shape):
@@ -322,6 +326,66 @@ def core_mask(shape, margin=CORE_MARGIN):
         return core
     core[m:shape[0] - m, m:shape[1] - m] = True
     return core
+
+
+def shore_profile(terrain, water, surface):
+    """ขอบน้ำแต่ละจุดเป็น "ชายฝั่ง" หรือ "ผนัง"
+
+    ลำธารที่อ่านว่าเป็นธรรมชาติต้องมีลำดับ ก้นน้ำ -> ชายฝั่งราบ -> ตลิ่งที่ลาด
+    ถ้าน้ำชนผนังหินตั้งทันที มันคือรอยผ่า ไม่ใช่ร่องที่น้ำทำเอง — วัดจากผังจริง
+    ทั้งแผนที่ได้ 55% ของขอบน้ำเป็นผนังตั้ง และไม่มี metric ตัวไหนเคยจับได้
+
+    คืน (จำนวนขอบที่เป็นชายฝั่ง, จำนวนขอบที่เป็นผนัง)
+    """
+    dry = ~water
+    shore = wall = 0
+    for dst, src in _cardinal_pairs(water.shape):
+        touch = np.zeros(water.shape, dtype=bool)
+        touch[dst] = dry[dst] & water[src]
+        rise = np.zeros(water.shape, dtype=np.int32)
+        rise[dst] = terrain[dst] - surface[src]
+        shore += int((touch & (rise <= SHORE_MAX_RISE)).sum())
+        wall += int((touch & (rise >= WALL_MIN_RISE)).sum())
+    return shore, wall
+
+
+def wall_slope_ratio(terrain, base, water, reach=CANYON_REACH):
+    """ผนังริมน้ำชันกว่าไหล่เขาที่มันตัดผ่านกี่เท่า
+
+    นี่คือตัวเลขที่ตรงกับคำว่า "ไม่กลมกลืนกับภูเขา" ที่สุด: หุบจริงกว้างตาม
+    ความลึก ส่วนของเราแถบดัดกว้างคงที่ ผนังจึงชันขึ้นเรื่อย ๆ ตามความลึก
+    วัดที่ wild_canyon ได้ 3.6 บล็อก/บล็อก เทียบไหล่เขา 0.7 = 5 เท่า
+    """
+    delta = base.astype(np.int32) - terrain.astype(np.int32)
+    touched = np.abs(delta) > 1
+    if not touched.any():
+        return 0.0
+    from scipy import ndimage
+    width = ndimage.distance_transform_edt(touched)
+    gz, gx = np.gradient(base.astype(np.float32))
+    natural = np.hypot(gz, gx)
+    sel = water & (delta >= 3)
+    if not sel.any():
+        return 0.0
+    wall = delta[sel] / np.maximum(width[sel], 1.0)
+    ground = np.maximum(np.median(natural[~water]) if (~water).any() else 1.0, 0.3)
+    return float(np.median(wall) / ground)
+
+
+def bed_relief_share(depth, way):
+    """ก้นน้ำมีรูปทรงไหม — สัดส่วน cell ที่ลึกเท่าเพื่อนบ้านทุกทิศ (= รางก้นแบน)
+
+    ก้นน้ำที่ดีมีร่องลึก (thalweg) ส่ายไปมาและตื้นขึ้นที่ขอบ ถ้าทุก cell ลึก
+    เท่ากันหมด มองจากผิวน้ำจะเป็นรางสี่เหลี่ยม ซึ่งเป็นอาการที่ยังไม่เคยวัด
+    """
+    if not way.any():
+        return 0.0
+    flat = np.ones(way.shape, dtype=bool)
+    for dst, src in _cardinal_pairs(way.shape):
+        same = np.ones(way.shape, dtype=bool)
+        same[dst] = ~(way[dst] & way[src]) | (depth[dst] == depth[src])
+        flat &= same
+    return float((flat & way).sum() / max(1, int(way.sum())))
 
 
 def patch_metrics(patch, base_terrain):
@@ -426,6 +490,9 @@ def patch_metrics(patch, base_terrain):
     column = np.where(way & core, np.maximum(depth, 1), 0)
 
     delta = np.where(core, delta, 0)
+    depth = np.asarray(patch["depth"], dtype=np.int32)
+    shore, wall_edges = shore_profile(terrain, water, surface)
+    edges = max(1, shore + wall_edges)
     lifted = delta > 0
     metrics = {
         "water_cells": int((water & core).sum()),
@@ -448,6 +515,11 @@ def patch_metrics(patch, base_terrain):
             float((bank_steps > PLAYER_STEP).mean()) if bank_steps.size else 0.0
         ),
         "bank_wall_cells": int((wall & core).sum()),
+        # --- หน้าตัดอ่านเป็นธรรมชาติไหม ---
+        "shore_share": float(shore / edges),
+        "bare_wall_share": float(wall_edges / edges),
+        "wall_slope_ratio": wall_slope_ratio(terrain, base, water),
+        "bed_flat_share": bed_relief_share(depth, way & core),
         "bank_climb_max": int(bank_steps.max()) if bank_steps.size else 0,
         # --- เทียบกับผังเดิม: ส่วนที่ "เราทำเอง" คือส่วนที่ต้องไล่ ---
         "canyon_share_dem": (
@@ -547,6 +619,7 @@ WORSE_WHEN_UP = {
     "water_column_max", "terrain_lift_max", "terrain_cut_max",
     "terrain_lifted_cells", "tiny_pool_share",
     "canyon_share_excess", "bank_unwalkable_excess",
+    "bare_wall_share", "wall_slope_ratio", "bed_flat_share",
 }
 # ตัวเลขที่เป็น "บริบท" ไม่ใช่คะแนน — เปลี่ยนไปเฉย ๆ ไม่ใช่ดีหรือแย่
 NEUTRAL = {
