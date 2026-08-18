@@ -28,8 +28,7 @@ def audit(root, windows=40, size=384, seed=1):
     missing = [n for n in names if not os.path.exists(os.path.join(root, f"{n}.npy"))]
     if missing:
         raise SystemExit(
-            f"{root} ขาด product: {', '.join(missing)}
-"
+            f"{root} ขาด product: {', '.join(missing)}\n"
             "ชุดนี้สร้างจากโค้ดรุ่นเก่า — รัน `python hydrology_shape.py --global` ใหม่"
         )
     data = {
