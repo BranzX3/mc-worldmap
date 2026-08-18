@@ -232,6 +232,8 @@ TALL = {"tall_grass": True, "large_fern": True}
 FLOWERS_LOW = ["oxeye_daisy", "cornflower", "poppy", "dandelion",
                "azure_bluet", "allium", "white_tulip", "orange_tulip"]
 FLOWERS_ALPINE = ["oxeye_daisy", "azure_bluet", "dandelion", "cornflower"]
+# ดอกสูงสองบล็อก — ต้องมีที่ว่างสองชั้นและตั้ง half ให้ถูก (painter จัดการให้)
+FLOWERS_TALL = ["rose_bush", "peony", "lilac", "sunflower"]
 
 
 def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
@@ -249,6 +251,17 @@ def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
         if r < 0.62:
             return ("tall_grass", True)
         return None
+
+    if zone == "shore":
+        # ริมน้ำ (กรวด/ทราย) — เดิมถูกตัดออกจาก plantable ทั้งหมด ริมทะเลสาบจึง
+        # เป็นแถบกรวดเปล่าที่ไม่มีอะไรเลย  ของจริงมีกอหญ้าแทรกตามซอกกรวด
+        # หนาแน่นน้อยและไม่มีพืชสองบล็อก (คลื่นกับน้ำแข็งกวาดทุกฤดู)
+        cover = 0.10 + 0.16 * patch_c
+        if r > cover:
+            return None
+        if damp > 0.55 and r < cover * 0.35:
+            return ("fern", False)
+        return ("short_grass", False)
 
     if zone == "scrub":
         # แถบพุ่มเตี้ยของแอลป์ (Latschenkiefer / อัลเพนโรส / จูนิเปอร์) — ทึบกว่า
@@ -314,6 +327,12 @@ def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
         return None
     if patch_a > 0.66:
         # หย่อมดอกไม้ — ชนิดเดียวทั้งหย่อม
+        # ดอกสูงสองบล็อก (rose bush / peony / lilac / sunflower) เป็นหย่อมย่อย
+        # ในหย่อมอีกที  วานิลลามีให้อยู่แล้วแต่ไม่เคยถูกใช้เลย ทั้งที่มันคือสิ่ง
+        # เดียวที่ทำให้ทุ่งมีความสูงสองระดับแทนพรมดอกไม้แบนราบ
+        if patch_b > 0.74 and elev < 1500 and r < cover * 0.10:
+            i = int(patch_c * len(FLOWERS_TALL)) % len(FLOWERS_TALL)
+            return (FLOWERS_TALL[i], True)
         if r < cover * 0.32:
             i = int(patch_b * len(FLOWERS_LOW)) % len(FLOWERS_LOW)
             return (FLOWERS_LOW[i], False)

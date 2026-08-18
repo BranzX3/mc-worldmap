@@ -82,7 +82,13 @@ TREE_PAD = 4            # fallback เมื่อไม่มี schematic
 # ต้องสูงกว่าต้นไม้ที่สูงสุดในแพ็ก เท่ากับ CLEAR_HEADROOM ของ build_terrain.py
 # ไม่งั้น --vegetation-only จะเหลือยอดใบไม้เก่าลอยค้าง
 VEGETATION_HEADROOM = 64
-PAINT_PIPELINE_VERSION = "2026-07-27-supported-lakebed-v7"
+PAINT_PIPELINE_VERSION = "2026-08-18-flow-bed-and-snow-tufts"
+
+# หิมะที่บางกว่านี้ (หน่วย 1/8 บล็อก) ยอมให้มีช่องให้พืชโผล่ได้
+SNOW_TUFT_MAX = 3
+# สัดส่วนของ cell ในหย่อมที่ถูกเจาะ — 0.45 ให้ภาพ "หิมะเป็นหย่อมสลับกอหญ้า"
+# ถ้าสูงกว่านี้หิมะบางจะหายไปจนดูเหมือนไม่เคยตก
+SNOW_TUFT_SHARE = 0.45
 
 # ตารางวัสดุก้นน้ำอยู่ที่ `water_ecology` — ทั้งทะเลสาบ (ตัดสินจากความลึก) และ
 # ลำน้ำ (ตัดสินจากความชัน) ต้องใช้รหัสชุดเดียวกัน
@@ -1008,7 +1014,24 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         terrain_sub=terrain_sub, snow=snow_lv,
     )
     cls_core = blended_cls[sx, sz]
-    snow_core = snow_lv[sx, sz]
+    snow_core = snow_lv[sx, sz].copy()
+    # ---- หิมะบางต้องมีที่ให้พืชโผล่ ----
+    #
+    # `plantable` ตัด `snow > 0` ทั้งหมด ผลคือทุ่งที่มีหิมะบางแค่ 1/8 บล็อกโล่ง
+    # เกลี้ยงทั้งผืน — ในภาพจริงหิมะบางเป็นหย่อม มีกอหญ้า/พุ่มโผล่พ้นขึ้นมา
+    # (ลมกวาดสันและโคนกอ) ตรงนี้เจาะ "ช่องหิมะ" เป็นหย่อมตามภูมิประเทศ แล้ว
+    # ทั้งตัวเขียนหิมะและตัวปลูกพืชก็เห็นตรงกันเอง เพราะอ่าน mask เดียวกัน
+    thin = (snow_core > 0) & (snow_core <= SNOW_TUFT_MAX)
+    if thin.any():
+        gap_noise = S.smooth_noise(x0, z0, shape, 19.0, 7321, 2) * 0.5 + 0.5
+        wx_gap = np.arange(x0, x1, dtype=np.int64)[:, None]
+        wz_gap = np.arange(z0, z1, dtype=np.int64)[None, :]
+        gap_roll = bhash_array(wx_gap, wz_gap, 57)
+        # หย่อมกว้าง ๆ จาก noise แล้วเจาะทีละบล็อกด้วย hash — ได้ขอบที่ไม่เรียบ
+        snow_core = np.where(
+            thin & (gap_noise > 0.46) & (gap_roll < SNOW_TUFT_SHARE),
+            0, snow_core,
+        ).astype(snow_core.dtype)
     soil_core = np.isin(cls_core, S.SOIL_IDS)
     depth_requested = wdepth[sx, sz].astype(np.int32, copy=False)
     patch_a = decor["patch_a"][sx, sz]
@@ -2189,12 +2212,14 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     # เดิมวนครบทุกคอลัมน์ แม้เป็นน้ำ/หิน/หิมะ การรวม mud ตรงนี้ยังแก้บั๊กเดิม
     # ที่ทำให้ branch wetland เข้าไม่ถึงเพราะ soil mask ไม่รวม mud
     mud = dense["cls"] == S.IDX["mud"]
+    # ริมน้ำ (`beach`) เคยถูกตัดออกทั้งหมด ทำให้แถบกรวดริมทะเลสาบเป็นพื้นที่ตาย
+    # ไม่มีอะไรเลยสักบล็อก  ให้ปลูกได้แต่ไปอยู่โซน `shore` ซึ่งบางและไม่มีพืช
+    # สองบล็อก (คลื่นกับน้ำแข็งกวาดทุกฤดู)
     plantable = (
-        (dense["soil"] | mud | dense["wet_shore"])
+        (dense["soil"] | mud | dense["wet_shore"] | dense["beach"])
         & (dense["snow"] == 0)
         & ~dense["water"]
         & ~dense["ice"]
-        & ~dense["beach"]
     )
     if not paint_vegetation or lake_only:
         plantable[:] = False
@@ -2209,6 +2234,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         fp = float(forest_p[ix, iz])
         if name == "mud" or dense["wet_shore"][qx, qz]:
             zone = "wetland"
+        elif dense["beach"][qx, qz]:
+            zone = "shore"
         elif dense["scrub"][qx, qz]:
             # ต้องมาก่อน forest/meadow — พุ่มบนที่ลาดมี forest_p สูงพอจะถูก
             # นับเป็นป่า แล้วชั้นพุ่มก็หายไปเหมือนเดิม
