@@ -385,6 +385,9 @@ def bed_relief_share(depth, way):
 
     ก้นน้ำที่ดีมีร่องลึก (thalweg) ส่ายไปมาและตื้นขึ้นที่ขอบ ถ้าทุก cell ลึก
     เท่ากันหมด มองจากผิวน้ำจะเป็นรางสี่เหลี่ยม ซึ่งเป็นอาการที่ยังไม่เคยวัด
+
+    **ห้ามเรียกตัวนี้กับลำน้ำกว้าง 1 cell** — ที่นั่นมันวัดไม่ได้ ไม่ใช่วัดแล้ว
+    ได้ค่าแย่  ดู `patch_metrics` ซึ่งกรองให้แล้ว
     """
     if not way.any():
         return 0.0
@@ -525,6 +528,19 @@ def patch_metrics(patch, base_terrain):
     depth = np.asarray(patch["depth"], dtype=np.int32)
     column = np.where(way & core, np.maximum(depth, 1), 0)
 
+    # ความกว้างของหน้าตัด = จำนวน cell ที่ใช้ section_id เดียวกัน
+    wide_bed = water & core
+    narrow_share = 0.0
+    if owned.any():
+        ids, inverse, counts = np.unique(
+            section_id[owned], return_inverse=True, return_counts=True
+        )
+        width = np.zeros(water.shape, dtype=np.int32)
+        width[owned] = counts[inverse]
+        narrow = owned & (width == 1)
+        narrow_share = float(narrow.sum() / max(1, int(owned.sum())))
+        wide_bed = (water & core) & ~narrow
+
     delta = np.where(core, delta, 0)
     depth = np.asarray(patch["depth"], dtype=np.int32)
     lake = (
@@ -563,7 +579,21 @@ def patch_metrics(patch, base_terrain):
         # ต้องวัด **ผืนน้ำทั้งหมด** ไม่ใช่เฉพาะลำน้ำ — ทะเลสาบคือ 61% ของน้ำทั้ง
         # แผนที่ ตัวเลขเดิมวัดแค่ `way` ที่ lake_mouth จึงรายงาน 83% จาก cell
         # เพียง 130 ตัว ขณะที่ก้นทะเลสาบ 7,517 cell จริง ๆ แบน 27%
-        "bed_flat_share": bed_relief_share(depth, water & core),
+        # ---- ก้นน้ำเป็นรางสี่เหลี่ยมไหม ----
+        #
+        # วัดเฉพาะหน้าตัดที่ **กว้างตั้งแต่ 2 cell ขึ้นไป** เพราะที่กว้าง 1 cell
+        # ตัวเลขนี้วัดอะไรไม่ได้เลยโดยเรขาคณิต: cell เดียวไม่มีเพื่อนบ้านด้านข้าง
+        # ให้ต่าง เหลือแต่เพื่อนบ้านตามแนวไหล ซึ่งในแอ่งจริง ๆ ก็ต้องลึกเท่ากัน
+        # อยู่แล้ว  สร้างก้นน้ำ "ตามตำรา" (ลำดับแอ่ง-แก่งระยะ 5-7 เท่าของความกว้าง)
+        # มาวัดได้ 0.34 ที่กว้าง 1 cell และ 0.00 ที่กว้าง 3 cell — ตัวเลขเดียวกัน
+        # จึงหมายถึงคนละเรื่องตามความกว้าง และเป้า <=0.25 เป็นไปไม่ได้สำหรับ
+        # แผนที่ที่ลำน้ำส่วนใหญ่กว้าง 1 cell (ซึ่งถูกต้องแล้ว: 1 cell = 4 m
+        # กว้างกว่าลำธารแอลป์จริงที่ 1-3 m ด้วยซ้ำ)
+        #
+        # ที่กว้าง 1 cell ให้ดู `narrow_share` แทน แล้วตัดสินจากความกว้างของ
+        # ลำน้ำว่าตรงกับของจริงไหม ไม่ใช่จากรูปทรงก้นที่ไม่มีที่ให้อยู่
+        "bed_flat_share": bed_relief_share(depth, wide_bed),
+        "narrow_share": narrow_share,
         # ผังสังเคราะห์ในเทสต์ไม่มี standing_water_mask — ถือว่าไม่มีทะเลสาบ
         "bed_flat_lake": bed_relief_share(depth, lake & core),
         "bank_climb_max": int(bank_steps.max()) if bank_steps.size else 0,
@@ -671,6 +701,9 @@ WORSE_WHEN_UP = {
 # ตัวเลขที่เป็น "บริบท" ไม่ใช่คะแนน — เปลี่ยนไปเฉย ๆ ไม่ใช่ดีหรือแย่
 NEUTRAL = {
     "water_cells", "waterway_cells", "terrain_changed_cells",
+    # บริบท ไม่ใช่คะแนน: ลำน้ำแคบไม่ใช่ข้อบกพร่อง แต่บอกว่า bed_flat_share
+    # วัดจาก cell ส่วนไหนของผืนน้ำ
+    "narrow_share",
     "canyon_share_dem", "bank_unwalkable_share_dem",
 }
 # ขยับน้อยกว่านี้ถือว่าเป็นเสียงรบกวน ไม่ใช่การถอยหลัง

@@ -127,6 +127,41 @@ class GoldenPatchMetricTests(unittest.TestCase):
         patch["surface_y"][7, 6] -= 1        # หลุดจากหน้าตัดของตัวเองหนึ่งตัว
         self.assertEqual(G.patch_metrics(patch, base)["unflat_cross_runs"], 1)
 
+    def test_a_one_cell_channel_is_left_out_of_the_bed_shape_number(self):
+        """ลำน้ำกว้าง 1 cell วัดรูปทรงก้นไม่ได้ — ต้องไม่ถูกนับว่า "แบน"
+
+        cell เดียวไม่มีเพื่อนบ้านด้านข้างให้ต่าง ตัวเลขจึงสะท้อนความกว้างของ
+        ลำน้ำ ไม่ใช่รูปทรงก้น  ผังนี้เป็นลำน้ำกว้าง 1 cell ที่ลึกเท่ากันทั้งสาย
+        ซึ่งเป็นกรณีที่แย่ที่สุดเท่าที่จะเป็นได้ถ้ายังนับมัน
+        """
+        patch = make_patch()
+        water = np.zeros(patch["water_mask"].shape, dtype=bool)
+        water[:, 5] = True
+        patch["water_mask"] = water
+        patch["waterway_mask"] = water.copy()
+        patch["depth"][:] = 0
+        patch["depth"][water] = 2
+        patch["section_id"][:] = 0
+        patch["section_id"][water] = np.arange(1, water.shape[0] + 1)
+        patch["centerline_y"][:] = UNRESOLVED
+        patch["centerline_y"][water] = patch["surface_y"][water]
+        base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)
+
+        metrics = G.patch_metrics(patch, base)
+
+        self.assertEqual(metrics["bed_flat_share"], 0.0)
+        self.assertGreater(metrics["narrow_share"], 0.9)
+
+    def test_a_rectangular_trough_is_still_reported_as_flat(self):
+        """กว้างพอที่จะมีรูปทรงแล้วยังลึกเท่ากันหมด = รางสี่เหลี่ยมจริง ๆ"""
+        patch = make_patch()          # ลำน้ำกว้าง 2 cell ลึก 2 เท่ากันทั้งผัง
+        base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)
+
+        metrics = G.patch_metrics(patch, base)
+
+        self.assertGreater(metrics["bed_flat_share"], 0.9)
+        self.assertEqual(metrics["narrow_share"], 0.0)
+
     def test_a_patch_without_sections_cannot_pass(self):
         """วัดไม่ได้ต้องไม่อ่านเป็น 'ผ่าน' — ไม่งั้นผังที่ยังไม่มี section_id
         จะได้ 0 ฟรีทั้งที่ไม่เคยตรวจอะไรเลย"""
