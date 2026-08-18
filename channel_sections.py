@@ -31,6 +31,10 @@
 import numpy as np
 from scipy import ndimage
 
+# ช่วงหมายเลขสถานีต่อหนึ่งเส้น — เส้นยาวสุดในแผนที่นี้ ~10,000 sample (0.5 บล็อก
+# ต่อ sample) เผื่อไว้ 2^17 แล้วยังอยู่ในช่วง int32 เมื่อคูณกับจำนวนเส้น (~6,000)
+SECTION_ID_STRIDE = 1 << 17
+
 # ---- พารามิเตอร์ของหน้าตัด ----
 # ทุกตัวคือ "สิ่งที่ผู้เล่นเห็น" ไม่ใช่ค่าปรับจูนลอย ๆ
 
@@ -124,9 +128,10 @@ class SectionPlan:
     """
 
     __slots__ = ("x", "z", "stage", "half_width", "bed", "slope", "kind",
-                 "reach")
+                 "reach", "ident")
 
-    def __init__(self, x, z, stage, half_width, bed, slope, kind, reach):
+    def __init__(self, x, z, stage, half_width, bed, slope, kind, reach,
+                 ident=0):
         self.x = np.asarray(x, dtype=np.int32)
         self.z = np.asarray(z, dtype=np.int32)
         self.stage = np.asarray(stage, dtype=np.int32)
@@ -135,6 +140,9 @@ class SectionPlan:
         self.slope = np.asarray(slope, dtype=np.float32)
         self.kind = np.asarray(kind, dtype=np.uint8)
         self.reach = np.asarray(reach, dtype=np.int32)
+        # หมายเลขของ *เส้น* ที่ profile นี้มาจาก — ต้องคงที่ข้าม tile ไม่งั้น
+        # `section_id` ของสองฝั่งรอยต่อจะเป็นคนละหน้าตัดทั้งที่เป็นเส้นเดียวกัน
+        self.ident = int(ident)
 
     def __len__(self):
         return int(self.x.size)
@@ -245,7 +253,15 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
     reach = np.maximum(1, np.rint(reach * np.maximum(fade, 0.3))).astype(np.int32)
 
     kind = np.full(gx.shape, int(profile["kind"]), dtype=np.uint8)
-    return SectionPlan(gx, gz, stage, half, bed, local, kind, reach)
+    # ไม่มี default: profile สองเส้นที่ ident เท่ากันจะถูกนับเป็นหน้าตัดเดียวกัน
+    # ซึ่งเป็นความผิดที่เงียบสนิท ผู้เรียกต้องเป็นคนแจกหมายเลข
+    if "ident" not in profile:
+        raise ValueError(
+            "profile ต้องมี 'ident' (หมายเลขประจำเส้นที่คงที่ทั้งแผนที่) "
+            "ไม่งั้น section_id ของคนละเส้นจะชนกัน"
+        )
+    return SectionPlan(gx, gz, stage, half, bed, local, kind, reach,
+                       ident=int(profile["ident"]))
 
 
 def stamp_sections(plans, terrain, protect=None):
@@ -277,11 +293,13 @@ def stamp_sections(plans, terrain, protect=None):
         else np.asarray(protect, dtype=bool)
     )
 
-    for plan_no, plan in enumerate(plans, start=1):
+    for plan in plans:
         if plan is None or len(plan) == 0:
             continue
-        # id ที่ไม่ชนกันข้ามสาย — สถานีมากสุดต่อสายอยู่ระดับพัน ใช้ฐาน 1e6 กันชน
-        plan_base = plan_no * 1_000_000
+        # id ต้องมาจาก **เส้น** ไม่ใช่ลำดับใน `plans` เพราะ --global เรียกทีละ
+        # tile ด้วย subset ของ profile ชุดเดียวกัน ถ้าใช้ลำดับ cell สองฝั่งรอย
+        # ต่อ tile จะได้ id คนละตัวทั้งที่เป็นหน้าตัดเดียวกัน
+        plan_base = plan.ident * SECTION_ID_STRIDE
         tx = np.gradient(plan.x.astype(np.float64))
         tz = np.gradient(plan.z.astype(np.float64))
         norm = np.hypot(tx, tz)

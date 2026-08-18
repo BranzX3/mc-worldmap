@@ -8,6 +8,7 @@ import unittest
 import numpy as np
 from scipy import ndimage
 
+import channel_sections as CS
 import hydrology_shape as H
 import hydrology_patch_io as IO
 import config as C
@@ -950,8 +951,15 @@ class HydrologyShapeTests(unittest.TestCase):
         terrain[10:26, 96:112] = 250              # ทะเลสาบแบนสนิท
         body = np.zeros((size, size), dtype=bool)
         body[10:26, 96:112] = True
-        points_z = np.arange(2, size - 2, dtype=np.float32)
-        points_x = np.full(points_z.shape, 40.0, dtype=np.float32)
+        # สองสายที่อยู่คนละฝั่งของรอยต่อ tile — จำเป็นสำหรับการตรวจ `section_id`
+        # ถ้ามีสายเดียว ทุก tile จะแจกหมายเลข 1 ให้มันเหมือนกันหมด การแจก
+        # หมายเลขตาม tile (บั๊ก) กับตามเส้น (ถูก) จึงให้ผลเท่ากันโดยบังเอิญ
+        run_z = np.arange(2, size - 2, dtype=np.float32)
+        points_z = np.concatenate([run_z, run_z])
+        points_x = np.concatenate([
+            np.full(run_z.shape, 40.0, dtype=np.float32),
+            np.full(run_z.shape, 12.0, dtype=np.float32),
+        ])
 
         source_dir = tempfile.mkdtemp()
         out_dir = tempfile.mkdtemp()
@@ -964,9 +972,11 @@ class HydrologyShapeTests(unittest.TestCase):
                 waterbody_mask=body,
                 waterway_kind=np.zeros((size, size), dtype=np.uint8),
                 points_x=points_x, points_z=points_z,
-                offsets=np.asarray([0, len(points_z)], dtype=np.int32),
-                kind=np.asarray([3], dtype=np.uint8),
-                width_m=np.asarray([8.0], dtype=np.float32),
+                offsets=np.asarray(
+                    [0, len(run_z), len(points_z)], dtype=np.int32
+                ),
+                kind=np.asarray([3, 3], dtype=np.uint8),
+                width_m=np.asarray([8.0, 8.0], dtype=np.float32),
             )
             with contextlib.redirect_stdout(io.StringIO()):
                 manifest = H.shape_hydrology_global(out_dir, tile_size=tile)
@@ -1051,7 +1061,8 @@ class HydrologyShapeTests(unittest.TestCase):
                     f"hydrology_shape ไม่ได้เขียน {product} "
                     "แต่ hydrology_patch_io ประกาศไว้",
                 )
-            for name in ("waterway_mask", "surface_y", "terrain_y"):
+            for name in ("waterway_mask", "surface_y", "terrain_y",
+                         "section_id"):
                 produced = np.load(os.path.join(out_dir, f"{name}.npy"))
                 self.assertTrue(
                     produced.any(), f"{name} ว่างเปล่า — ผังทดสอบไม่ได้ทำงาน"
@@ -1060,10 +1071,68 @@ class HydrologyShapeTests(unittest.TestCase):
                     produced, reference[name],
                     err_msg=f"global ให้ {name} ต่างจาก patch",
                 )
+
+            # `section_id` อยู่ในรายการเทียบข้างบนด้วย ซึ่งเป็นตัวจับว่า tile
+            # แจกหมายเลขหน้าตัดตามลำดับใน subset ของตัวเอง (ผิด) หรือตามหมายเลข
+            # ประจำเส้นที่คงที่ทั้งแผนที่ (ถูก) — แบบแรกทำให้ตัววัดเห็นหน้าตัด
+            # เดียวเป็นสองอันคนละฝั่งรอยต่อ
         finally:
             H.HERE = original_here
             shutil.rmtree(source_dir, ignore_errors=True)
             shutil.rmtree(out_dir, ignore_errors=True)
+
+    def test_section_ids_come_from_the_line_not_from_the_tile(self):
+        """สองสายที่อยู่คนละ tile ต้องได้หมายเลขหน้าตัดคนละชุด
+
+        `stamp_sections` เห็น profile แค่ subset ที่ tile นั้นเลือกมา ถ้าแจก
+        หมายเลขตามลำดับใน subset สายแรกของทุก tile จะได้เลข 1 เหมือนกันหมด แล้ว
+        ตัววัดที่จัดกลุ่มด้วย `section_id` จะรวม cell ของคนละสายเป็นหน้าตัดเดียว
+        กัน  halo ต้องแคบพอที่แต่ละ tile จะเห็นไม่ครบทุกสาย ไม่งั้นเทสต์นี้ผ่าน
+        โดยบังเอิญ
+        """
+        size, tile, halo = 96, 32, 4
+        terrain = (300 - np.arange(size, dtype=np.int16))[:, None]
+        terrain = np.repeat(terrain, size, axis=1).astype(np.int16)
+        run_z = np.arange(2, size - 2, dtype=np.float32)
+        points_z = np.concatenate([run_z, run_z])
+        points_x = np.concatenate([
+            np.full(run_z.shape, 8.0, dtype=np.float32),
+            np.full(run_z.shape, 72.0, dtype=np.float32),
+        ])
+
+        source_dir = tempfile.mkdtemp()
+        out_dir = tempfile.mkdtemp()
+        original_here = H.HERE
+        try:
+            H.HERE = source_dir
+            np.save(os.path.join(source_dir, "terrain_y.npy"), terrain)
+            np.savez(
+                os.path.join(source_dir, "water_sources.npz"),
+                waterbody_mask=np.zeros((size, size), dtype=bool),
+                waterway_kind=np.zeros((size, size), dtype=np.uint8),
+                points_x=points_x, points_z=points_z,
+                offsets=np.asarray(
+                    [0, len(run_z), len(points_z)], dtype=np.int32
+                ),
+                kind=np.asarray([3, 3], dtype=np.uint8),
+                width_m=np.asarray([8.0, 8.0], dtype=np.float32),
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                H.shape_hydrology_global(out_dir, tile_size=tile, halo=halo)
+            section = np.load(os.path.join(out_dir, "section_id.npy"))
+        finally:
+            H.HERE = original_here
+            shutil.rmtree(source_dir, ignore_errors=True)
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+        line = section // CS.SECTION_ID_STRIDE
+        west = set(np.unique(line[:, :size // 2][line[:, :size // 2] > 0]))
+        east = set(np.unique(line[:, size // 2:][line[:, size // 2:] > 0]))
+
+        self.assertTrue(west and east, "ผังทดสอบไม่มีน้ำสักสาย")
+        self.assertFalse(
+            west & east, "สองสายใช้หมายเลขเส้นร่วมกัน = แจกตาม tile ไม่ใช่ตามเส้น"
+        )
 
     def test_seam_report_separates_tile_edges_from_interior(self):
         """seam_step_report ต้องแยกขอบ tile ออกจากภายในได้ถูกต้อง"""

@@ -1218,6 +1218,11 @@ def build_line_profiles(
             max_drop_per_sample=max_drop_per_sample, waterbody=waterbody,
             slope_field=slope_field,
         ))
+    # หมายเลขประจำตัวของแต่ละ profile — `stamp_sections` ใช้ตั้ง `section_id`
+    # ต้องให้ตรงนี้ครั้งเดียวสำหรับทั้งแผนที่ เพราะแต่ละ tile เห็น profile แค่
+    # subset ถ้าให้หมายเลขตามลำดับใน subset สองฝั่งรอยต่อจะได้คนละ id
+    for ident, profile in enumerate(profiles, start=1):
+        profile["ident"] = ident
     return profiles
 
 
@@ -1494,6 +1499,8 @@ def shape_waterway_sections(
                 sources, line_i, full_terrain, upstream,
                 waterbody=full_waterbody, slope_field=full_slope,
             ))
+        for ident, profile in enumerate(profiles, start=1):
+            profile["ident"] = ident
     else:
         profiles = line_profiles
 
@@ -1512,6 +1519,8 @@ def shape_waterway_sections(
             "stage": profile["stage"],
             "radius": profile["radius"],
             "kind": profile["kind"],
+            # ต้องส่งต่อ ไม่ใช่ตั้งใหม่ตามลำดับในกรอบนี้ — ดู `stamp_sections`
+            "ident": profile["ident"],
         }
         plan = CS.plan_from_profile(
             shifted, base_y.astype(np.int32), slope_field, outer_rim=outer_rim,
@@ -2325,6 +2334,12 @@ def _global_output_arrays(out_dir, shape):
         "waterfall_top_y": np.int16,
         "waterfall_lip_mask": np.bool_,
         "waterfall_pool_mask": np.bool_,
+        # สองตัวนี้คือสิ่งที่ `golden_patches.patch_metrics` ใช้ตัดสินว่าหน้าตัด
+        # ราบไหม  ถ้าไม่เขียนลงดิสก์ `audit_global.py` จะวัด unflat_cross_runs
+        # ไม่ได้เลย (raise) — เคยเป็นแบบนั้นมาตลอดโดยไม่มีใครสังเกต เพราะ metric
+        # เดิมเดาเจ้าของหน้าตัดเอาเองจาก EDT
+        "centerline_y": np.int16,
+        "section_id": np.int32,
     }
     return {
         key: np.lib.format.open_memmap(

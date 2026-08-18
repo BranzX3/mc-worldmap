@@ -5,7 +5,7 @@ import numpy as np
 import channel_sections as CS
 
 
-def straight_profile(length=20, x=10, top=100, drop=0.0, radius=1.0):
+def straight_profile(length=20, x=10, top=100, drop=0.0, radius=1.0, ident=1):
     z = np.arange(2, 2 + length, dtype=np.int32)
     stage = np.rint(top - drop * np.arange(length)).astype(np.int32)
     return {
@@ -14,6 +14,7 @@ def straight_profile(length=20, x=10, top=100, drop=0.0, radius=1.0):
         "stage": stage,
         "radius": radius,
         "kind": 3,
+        "ident": ident,
     }
 
 
@@ -208,6 +209,7 @@ class SectionOwnershipTests(unittest.TestCase):
             "stage": np.array([100, 105] * 4, dtype=np.int32),
             "radius": 1.0,
             "kind": 3,
+            "ident": 1,
         }
         plan = CS.plan_from_profile(profile, terrain, np.full((24, 24), 1.0))
 
@@ -233,8 +235,10 @@ class SectionOwnershipTests(unittest.TestCase):
         """สองสายที่วางคู่กันต้องไม่ถูกนับเป็นหน้าตัดเดียวกัน"""
         terrain = np.full((24, 24), 120, dtype=np.int32)
         slope = np.full((24, 24), 1.0)
-        a = CS.plan_from_profile(straight_profile(x=6, top=100), terrain, slope)
-        b = CS.plan_from_profile(straight_profile(x=16, top=100), terrain, slope)
+        a = CS.plan_from_profile(
+            straight_profile(x=6, top=100, ident=1), terrain, slope)
+        b = CS.plan_from_profile(
+            straight_profile(x=16, top=100, ident=2), terrain, slope)
 
         out = CS.stamp_sections([a, b], terrain)
         left = set(np.unique(out["section"][:, :11][out["water"][:, :11]]).tolist())
