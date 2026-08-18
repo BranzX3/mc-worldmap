@@ -93,6 +93,51 @@ def bed_depth_across(offset, half_width, max_depth):
     return np.rint(depth).astype(np.int32)
 
 
+def flow_index(stage, x, z, drop_target=2, max_run=192.0):
+    """ความชันของลำน้ำที่แต่ละสถานี หน่วยเป็น **ต่อพัน** (0..255 = 0..25.5%)
+
+    ทำไมเป็นความชัน ไม่ใช่ "ความเร็ว": สเกลโลกนี้คือ 4 m ต่อบล็อกทั้งสองแกน
+    การใส่สูตร Manning ตรง ๆ ให้ตัวเลขที่ดูเป็นฟิสิกส์แต่แปลว่า "ลำธารลึก 4
+    เมตรไหล 6 m/s" ทุกสาย  ความชันคือสิ่งที่วัดได้จริงจาก profile และเป็นตัว
+    ที่ตัดสินสิ่งที่ผู้เล่นเห็น (ตะกอนถูกพัดหรือสะสม) โดยตรง
+
+    **หน้าต่างต้องยืดตามความชัน ไม่ใช่คงที่**: ผิวน้ำเป็นจำนวนเต็มบล็อก ถ้าวัด
+    บนหน้าต่างคงที่ ±16 บล็อก ความชันที่เป็นไปได้จะมีแค่ 0, 31, 62, ... ต่อพัน
+    ช่วง 6-20 (ลำน้ำบนที่ราบเชิงเขา) จึงเป็นค่าที่ *เกิดขึ้นไม่ได้เลย* วัดจาก
+    ผังจริงได้ยืนยัน: ทุกจุดตกอยู่ใน "นิ่ง" หรือ "เชี่ยวขึ้นไป" ไม่มีตัวกลาง
+
+    ตรงนี้จึงถามกลับด้าน: **ต้องเดินไปไกลแค่ไหนน้ำถึงจะลง ``drop_target``
+    บล็อก** ระยะนั้นคือส่วนกลับของความชัน  ``max_run`` กันไม่ให้ช่วงที่ราบยาว
+    ไปดูดค่าจากน้ำตกที่อยู่ไกลออกไป
+    """
+    stage = np.asarray(stage, dtype=np.float32)
+    x = np.asarray(x, dtype=np.float32)
+    z = np.asarray(z, dtype=np.float32)
+    n = stage.size
+    if n == 0:
+        return np.zeros(0, dtype=np.uint8)
+    step = np.concatenate(([0.0], np.hypot(np.diff(x), np.diff(z))))
+    along = np.cumsum(step)
+    # `regularize_stage` ทำให้ stage ไม่เพิ่มตามลำดับ array — ใช้หาตำแหน่งได้
+    # ด้วย searchsorted บนค่าที่กลับเครื่องหมายแล้ว (ซึ่งไม่ลด)
+    rising = -stage
+    hi = np.searchsorted(rising, rising + drop_target, side="left")
+    lo = np.searchsorted(rising, rising - drop_target, side="right") - 1
+    hi = np.clip(hi, 0, n - 1)
+    lo = np.clip(lo, 0, n - 1)
+    # ตัดหน้าต่างที่ยาวเกิน — ที่ราบยาว ๆ ต้องได้ความชันต่ำ ไม่ใช่ไปยืมค่าจาก
+    # น้ำตกที่อยู่ปลายสาย
+    far_hi = along[hi] - along > max_run
+    far_lo = along - along[lo] > max_run
+    hi_pos = np.where(far_hi, np.searchsorted(along, along + max_run) - 1, hi)
+    lo_pos = np.where(far_lo, np.searchsorted(along, along - max_run), lo)
+    hi_pos = np.clip(hi_pos, 0, n - 1)
+    lo_pos = np.clip(lo_pos, 0, n - 1)
+    run = np.maximum(along[hi_pos] - along[lo_pos], 1.0)
+    drop = np.maximum(stage[lo_pos] - stage[hi_pos], 0.0)
+    return np.rint(np.clip(drop / run, 0.0, 0.255) * 1000).astype(np.uint8)
+
+
 def bank_height_at(offset, shore_end, slope):
     """ความสูงของตลิ่งเหนือผิวน้ำที่ระยะ ``offset``
 
@@ -128,10 +173,10 @@ class SectionPlan:
     """
 
     __slots__ = ("x", "z", "stage", "half_width", "bed", "slope", "kind",
-                 "reach", "ident")
+                 "reach", "ident", "flow_x", "flow_z", "flow")
 
     def __init__(self, x, z, stage, half_width, bed, slope, kind, reach,
-                 ident=0):
+                 ident=0, flow_x=None, flow_z=None, flow=None):
         self.x = np.asarray(x, dtype=np.int32)
         self.z = np.asarray(z, dtype=np.int32)
         self.stage = np.asarray(stage, dtype=np.int32)
@@ -143,6 +188,15 @@ class SectionPlan:
         # หมายเลขของ *เส้น* ที่ profile นี้มาจาก — ต้องคงที่ข้าม tile ไม่งั้น
         # `section_id` ของสองฝั่งรอยต่อจะเป็นคนละหน้าตัดทั้งที่เป็นเส้นเดียวกัน
         self.ident = int(ident)
+        # ทิศทางการไหล (หน่วย) กับดัชนีแรงน้ำต่อสถานี — ผู้บริโภคปลายทาง
+        # (วัสดุก้นน้ำ พืชน้ำ กก) ต้องใช้ ไม่ใช่เดาจากความลึกอย่างเดียว
+        zeros = np.zeros(self.x.shape, dtype=np.float32)
+        self.flow_x = zeros if flow_x is None else np.asarray(flow_x, np.float32)
+        self.flow_z = zeros if flow_z is None else np.asarray(flow_z, np.float32)
+        self.flow = (
+            np.zeros(self.x.shape, dtype=np.uint8) if flow is None
+            else np.asarray(flow, dtype=np.uint8)
+        )
 
     def __len__(self):
         return int(self.x.size)
@@ -253,6 +307,13 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
     reach = np.maximum(1, np.rint(reach * np.maximum(fade, 0.3))).astype(np.int32)
 
     kind = np.full(gx.shape, int(profile["kind"]), dtype=np.uint8)
+    # ทิศการไหล = แทนเจนต์ของเส้น ซึ่งเรียงจากต้นน้ำไปท้ายน้ำอยู่แล้ว
+    # (`regularize_stage` บังคับให้ stage ไล่ลงตามลำดับ array)
+    tx = np.gradient(gx.astype(np.float64))
+    tz = np.gradient(gz.astype(np.float64))
+    norm = np.hypot(tx, tz)
+    norm[norm == 0] = 1.0
+    flow = flow_index(stage, gx, gz)
     # ไม่มี default: profile สองเส้นที่ ident เท่ากันจะถูกนับเป็นหน้าตัดเดียวกัน
     # ซึ่งเป็นความผิดที่เงียบสนิท ผู้เรียกต้องเป็นคนแจกหมายเลข
     if "ident" not in profile:
@@ -261,7 +322,8 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
             "ไม่งั้น section_id ของคนละเส้นจะชนกัน"
         )
     return SectionPlan(gx, gz, stage, half, bed, local, kind, reach,
-                       ident=int(profile["ident"]))
+                       ident=int(profile["ident"]),
+                       flow_x=tx / norm, flow_z=tz / norm, flow=flow)
 
 
 def stamp_sections(plans, terrain, protect=None):
@@ -288,6 +350,11 @@ def stamp_sections(plans, terrain, protect=None):
     # หน้าตัดที่ราบสนิทว่าไม่ราบ (วัดที่ hill_junction ได้ 82 cell ที่ 'ผิด'
     # ทั้งที่ทุกตัวถือระดับของหน้าตัดที่ประชิดตัวเองจริง ๆ)
     section = np.zeros(terrain.shape, dtype=np.int32)
+    # ทิศการไหลเก็บเป็น int8 (คูณ 127) — พอสำหรับ 8 ทิศบวกอะไรที่ละเอียดกว่า
+    # และเล็กกว่า float32 สี่เท่าเมื่อเขียนเป็น product ระดับโลก
+    flow_x = np.zeros(terrain.shape, dtype=np.int8)
+    flow_z = np.zeros(terrain.shape, dtype=np.int8)
+    flow = np.zeros(terrain.shape, dtype=np.uint8)
     protect = (
         np.zeros(terrain.shape, dtype=bool) if protect is None
         else np.asarray(protect, dtype=bool)
@@ -326,6 +393,9 @@ def stamp_sections(plans, terrain, protect=None):
             line_kind = plan.kind[active][ok]
             reach_line = plan.reach[active][ok].astype(np.float32)
             station = (np.flatnonzero(active)[ok] + 1).astype(np.int32)
+            fx_line = plan.flow_x[active][ok]
+            fz_line = plan.flow_z[active][ok]
+            flow_line = plan.flow[active][ok]
 
             # profile ถูก sample ทุก 0.5 บล็อก (`DENSIFY_SPACING`) หลายสถานีจึง
             # ตกลง cell เดียวกันเสมอ ไม่ใช่กรณีพิเศษ  การเขียนแบบ fancy-index
@@ -347,6 +417,8 @@ def stamp_sections(plans, terrain, protect=None):
             bed_max, slope = bed_max[uniq], slope[uniq]
             line_kind, reach_line = line_kind[uniq], reach_line[uniq]
             station = station[uniq]
+            fx_line, fz_line = fx_line[uniq], fz_line[uniq]
+            flow_line = flow_line[uniq]
 
             free = ~protect[pz, px]
             better = (owner_offset[pz, px] > step) | (
@@ -361,6 +433,8 @@ def stamp_sections(plans, terrain, protect=None):
             line_kind = line_kind[take]
             reach_here = reach_line[take]
             station = station[take]
+            fx_line, fz_line = fx_line[take], fz_line[take]
+            flow_line = flow_line[take]
             owner_offset[pz, px] = step
 
             wet = step <= np.maximum(half, 0.5)
@@ -371,6 +445,9 @@ def stamp_sections(plans, terrain, protect=None):
                 water[wz, wx] = True
                 surface[wz, wx] = wstage
                 section[wz, wx] = plan_base + station[wet]
+                flow_x[wz, wx] = np.rint(fx_line[wet] * 127).astype(np.int8)
+                flow_z[wz, wx] = np.rint(fz_line[wet] * 127).astype(np.int8)
+                flow[wz, wx] = flow_line[wet]
                 depth[wz, wx] = d
                 shaped[wz, wx] = wstage - d
                 kind[wz, wx] = line_kind[wet]
@@ -436,4 +513,7 @@ def stamp_sections(plans, terrain, protect=None):
         "kind": kind,
         "centerline": centerline,
         "section": section,
+        "flow_x": flow_x,
+        "flow_z": flow_z,
+        "flow": flow,
     }

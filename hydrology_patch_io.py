@@ -37,6 +37,9 @@ GLOBAL_PRODUCTS = {
     # จับได้ถ้า `--global` ลืมเขียนตัวใดตัวหนึ่ง
     "centerline_y": "centerline_y.npy",
     "section_id": "section_id.npy",
+    "flow_x": "flow_x.npy",
+    "flow_z": "flow_z.npy",
+    "flow_index": "flow_index.npy",
 }
 
 

@@ -39,6 +39,7 @@ import biomes as B
 import config as C
 import ecology as E
 import surface as S
+import water_ecology as WE
 import vegetation as V
 import tree_schematics as TS
 from paint_world import repair_entities
@@ -83,11 +84,10 @@ TREE_PAD = 4            # fallback เมื่อไม่มี schematic
 VEGETATION_HEADROOM = 64
 PAINT_PIPELINE_VERSION = "2026-07-27-supported-lakebed-v7"
 
-LAKEBED_NAMES = (
-    "stream", "sand", "gravel", "clay", "mud",
-    "stone", "cobble", "calcite",
-)
-LAKEBED = {name: i for i, name in enumerate(LAKEBED_NAMES)}
+# ตารางวัสดุก้นน้ำอยู่ที่ `water_ecology` — ทั้งทะเลสาบ (ตัดสินจากความลึก) และ
+# ลำน้ำ (ตัดสินจากความชัน) ต้องใช้รหัสชุดเดียวกัน
+LAKEBED_NAMES = WE.LAKEBED_NAMES
+LAKEBED = WE.LAKEBED
 
 
 def leaf_block(kind):
@@ -483,7 +483,7 @@ def neighbour_relief(values):
 
 
 def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
-                      elev_m=None):
+                      elev_m=None, flow_index=None, pool_mask=None):
     """Classify an alpine lakebed into broad, coherent sediment patches.
 
     The palette follows the energy gradient of a real lake: wave-washed
@@ -510,7 +510,17 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
     result = np.full(shape, LAKEBED["clay"], dtype=np.uint8)
     wet = depth > 0
     stream = wet & ~lake_mask
-    result[stream] = LAKEBED["stream"]
+    # ก้นลำน้ำตัดสินจาก *ความชัน* ไม่ใช่ hash: แก่งบนที่ชันพัดตะกอนละเอียดออก
+    # หมดจนเหลือหินกับกรวด ส่วนช่วงเอื่อยเก็บทรายไว้ได้  ก่อนหน้านี้ทุก cell ของ
+    # ลำน้ำได้ค่าเดียวกัน (`LAKEBED["stream"]`) แล้วสุ่มบล็อกจาก palette ดิน/
+    # พอดโซล/มอส ซึ่งเป็นก้นน้ำที่อ่านออกทันทีว่าไม่จริงเมื่ออยู่ใต้แก่ง
+    if flow_index is None:
+        result[stream] = LAKEBED["stream"]
+    else:
+        streambed = WE.streambed_materials(
+            flow_index, depth, stream, pool_mask=pool_mask, texture=texture
+        )
+        result[stream] = streambed[stream]
 
     shallow = wet & lake_mask & (effective_depth < 6.0)
     result[shallow & (texture < 0.46)] = LAKEBED["gravel"]
@@ -562,7 +572,8 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
     return result
 
 
-def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
+def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0,
+                             flow_index=None):
     """Return clustered shallow-lake vegetation masks.
 
     Vegetation is confined to the photic littoral shelf. Broad world-space
@@ -604,6 +615,11 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
         & (bed_relief <= 1)
         & suitable_bed
     )
+    # หญ้าน้ำยึดพื้นไม่ได้ในกระแสแรง และใบบัวจะถูกพัดไปเลย — ก่อนหน้านี้กฎมี
+    # แต่ความลึก ผลคือแก่งบนที่ชันมีทุ่งหญ้าทะเลอยู่ก้น
+    if flow_index is not None:
+        flow_index = np.asarray(flow_index, dtype=np.uint8)
+        plantable &= WE.submerged_plants_allowed(flow_index)
     vegetation = plantable & (roll < density)
     tall = vegetation & (depth >= 3) & (tall_roll < 0.24)
     short = vegetation & ~tall
@@ -613,7 +629,9 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
     # independent roll so the trace population is not accidentally restricted
     # to the final 0.2% tail of the seagrass distribution.
     lily = (
-        (depth == 1)
+        (WE.floating_plants_allowed(flow_index) if flow_index is not None
+         else np.ones(shape, dtype=bool))
+        & (depth == 1)
         & (bed_relief == 0)
         & np.isin(
             bed_kind,
@@ -625,7 +643,8 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0):
     return short, tall, lily
 
 
-def riparian_reed_heights(water, water_depth, ground_ok, x0=0, z0=0):
+def riparian_reed_heights(water, water_depth, ground_ok, x0=0, z0=0,
+                          flow_index=None):
     """Return 0–3 block reed clumps beside shallow water.
 
     Minecraft has no cattail/reed block, so the painter uses short sugar-cane
@@ -642,6 +661,9 @@ def riparian_reed_heights(water, water_depth, ground_ok, x0=0, z0=0):
         )
 
     shallow = water & (water_depth >= 1) & (water_depth <= 2)
+    # ตลิ่งข้างน้ำเชี่ยวเป็นหินเปล่า กกขึ้นได้เฉพาะข้างน้ำที่เอื่อยพอ
+    if flow_index is not None:
+        shallow &= WE.reeds_allowed(np.asarray(flow_index, dtype=np.uint8))
     beside_shallow = np.zeros(water.shape, dtype=bool)
     beside_shallow[1:] |= shallow[:-1]
     beside_shallow[:-1] |= shallow[1:]
@@ -967,7 +989,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                          global_lake_mask=None, waterfall_top_y=None,
                          waterfall_lip_mask=None,
                          waterfall_pool_mask=None,
-                         flowing_water_mask=None):
+                         flowing_water_mask=None,
+                         flow_index=None):
     """เตรียม array สำหรับผิวดิน ชั้นดิน น้ำ น้ำแข็ง และหิมะ
 
     array ที่คืนมามีพิกัด [x, z] เฉพาะกรอบจริง ไม่รวม padding การแยกขั้นนี้
@@ -1117,8 +1140,19 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
 
     # Alpine-lake scenario: coherent substrate patches follow depth and relief
     # instead of forming hard concentric material bands.
+    flow_core = (
+        None if flow_index is None
+        else np.asarray(flow_index, dtype=np.uint8)[sx, sz]
+    )
+    # แอ่งใต้น้ำตกต้องรู้ก่อนเลือกวัสดุ — มันถูกครูดตลอดเวลาแม้ผิวน้ำจะนิ่ง
+    waterfall_pool = (
+        np.zeros(shape, dtype=bool)
+        if waterfall_pool_mask is None
+        else np.asarray(waterfall_pool_mask, dtype=bool)[sx, sz]
+    )
     bed_kind = lakebed_materials(
-        depth, bed_relief, level_adjusted, x0=x0, z0=z0, elev_m=elev_core
+        depth, bed_relief, level_adjusted, x0=x0, z0=z0, elev_m=elev_core,
+        flow_index=flow_core, pool_mask=waterfall_pool,
     )
     material_ids = np.asarray([
         P.bed_clay,       # stream is replaced from bed_stream below
@@ -1156,11 +1190,6 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         np.zeros(shape, dtype=bool)
         if waterfall_lip_mask is None
         else np.asarray(waterfall_lip_mask, dtype=bool)[sx, sz]
-    )
-    waterfall_pool = (
-        np.zeros(shape, dtype=bool)
-        if waterfall_pool_mask is None
-        else np.asarray(waterfall_pool_mask, dtype=bool)[sx, sz]
     )
     rock_feature = water_mask & (
         waterfall_foot | waterfall_lip | waterfall_pool
@@ -1211,6 +1240,11 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "bed_relief": bed_relief,
         "bed_kind": bed_kind,
         "bed_id": bed_id,
+        # ความชันของลำน้ำต่อพัน — ตัวตัดสินว่าอะไรอยู่ในน้ำได้บ้าง
+        "flow": (
+            np.zeros(shape, dtype=np.uint8) if flow_core is None
+            else flow_core
+        ),
         "waterfall_top_y": waterfall_top,
         "waterfall_lip": waterfall_lip,
         "waterfall_pool": waterfall_pool,
@@ -1894,6 +1928,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                    water_surface_y=None, global_lake_mask=None,
                    waterfall_top_y=None, waterfall_lip_mask=None,
                    waterfall_pool_mask=None, flowing_water_mask=None,
+                   flow_index=None,
                    active_chunks=None):
     """เขียนผิว+พืชในกรอบบล็อก [x0,x1) x [z0,z1)
 
@@ -1988,6 +2023,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         waterfall_lip_mask=waterfall_lip_mask,
         waterfall_pool_mask=waterfall_pool_mask,
         flowing_water_mask=flowing_water_mask,
+        flow_index=flow_index,
     )
     object_surface = surf_y.copy()
     object_surface[
@@ -2092,7 +2128,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     # ---- พืชน้ำ: sparse writes หลังเติมน้ำเสร็จ -------------------------------
     seagrass, tall_seagrass, lily = aquatic_vegetation_masks(
         dense["depth"], dense["bed_kind"], dense["bed_relief"],
-        x0=x0, z0=z0,
+        x0=x0, z0=z0, flow_index=dense["flow"],
     )
     seagrass &= dense["water"]
     tall_seagrass &= dense["water"]
@@ -2131,7 +2167,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         & ~dense["beach"]
     )
     reed_heights = riparian_reed_heights(
-        dense["water"], dense["depth"], reed_ground, x0=x0, z0=z0
+        dense["water"], dense["depth"], reed_ground, x0=x0, z0=z0,
+        flow_index=dense["flow"],
     )
     for qx, qz in zip(*np.nonzero(reed_heights)):
         wx, wz = x0 + int(qx), z0 + int(qz)
@@ -2455,10 +2492,16 @@ def paint_fingerprint(hydrology_root=None):
     --resume จึงข้าม region ต่อไปเงียบ ๆ ทั้งที่ input คนละชุดแล้ว — guard ที่มี
     ไว้กันเรื่องนี้โดยเฉพาะกลับไม่ครอบ input ที่ paint ใช้จริง
     """
+    # ต้องครบทุกโมดูลที่ตัดสินว่าบล็อกไหนถูกเขียน — ขาดไปหนึ่งไฟล์แปลว่าแก้กฎ
+    # แล้ว --resume ข้าม region เก่าเงียบ ๆ (บั๊กชนิดเดียวกับที่ `SHAPE_INPUTS`
+    # เคยขาด channel_sections.py)
     paths = [
         os.path.join(HERE, name) for name in (
             "paint_surface.py",
             "surface.py",
+            "water_ecology.py",
+            "ecology.py",
+            "biomes.py",
             "vegetation.py",
             "tree_schematics.py",
             "config.py",
@@ -2663,6 +2706,13 @@ def main():
             os.path.join(hydro_root, "waterfall_pool_mask.npy"), mmap_mode="r"
         )
         if hydro_root else None
+    )
+    # ความชันของลำน้ำ — ชุดที่สร้างก่อน 2026-08-18 ไม่มีไฟล์นี้ ปล่อยเป็น None
+    # แล้วก้นลำน้ำจะกลับไปใช้ palette เดิม (ไม่พัง แต่ไม่ได้ของใหม่)
+    flow_path = os.path.join(hydro_root, "flow_index.npy") if hydro_root else None
+    global_flow_index = (
+        np.load(flow_path, mmap_mode="r")
+        if flow_path and os.path.exists(flow_path) else None
     )
     affected_chunks = (
         np.load(os.path.join(hydro_root, "affected_chunks.npy"), mmap_mode="r")
@@ -2905,6 +2955,11 @@ def main():
             if global_flowing
             else np.zeros(level_slice.shape, dtype=bool)
         )
+        flow_index_slice = (
+            global_flow_index[az0:az1, ax0:ax1]
+            if global_flow_index is not None
+            else np.zeros(level_slice.shape, dtype=np.uint8)
+        )
         if hydro_patch is not None:
             terrain_slice = overlay_window(
                 terrain_slice, hydro_patch, "terrain_y",
@@ -2940,6 +2995,11 @@ def main():
                 waterfall_pool_slice = overlay_window(
                     waterfall_pool_slice, hydro_patch,
                     "waterfall_pool_mask", ax0, ax1, az0, az1,
+                )
+            if "flow_index" in hydro_patch.files:
+                flow_index_slice = overlay_window(
+                    flow_index_slice, hydro_patch, "flow_index",
+                    ax0, ax1, az0, az1,
                 )
             if "waterway_mask" in hydro_patch.files:
                 flowing_water_slice = overlay_window(
@@ -2987,6 +3047,7 @@ def main():
             waterfall_lip_mask=waterfall_lip_slice.T,
             waterfall_pool_mask=waterfall_pool_slice.T,
             flowing_water_mask=flowing_water_slice.T,
+            flow_index=flow_index_slice.T,
             active_chunks=active_chunk_set,
         )
         # คิว fluid tick เป็นตัวเลือก ไม่ใช่ค่าเริ่มต้น — ดู --fluid-ticks

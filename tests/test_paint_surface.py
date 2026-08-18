@@ -283,6 +283,79 @@ class PaintSurfaceTests(unittest.TestCase):
 
         np.testing.assert_array_equal(tile, full[17:83, 23:91])
 
+    def test_a_torrent_bed_is_rock_not_soil(self):
+        """ก้นแก่งต้องเป็นหิน/กรวด ไม่ใช่ดินกับพอดโซลจาก palette สุ่ม
+
+        นี่คืออาการที่ตาอ่านออกทันทีว่าไม่จริง: น้ำเชี่ยว 10% พัดตะกอนละเอียด
+        ออกหมด แต่ระบบเดิมให้ก้นลำน้ำทุกสายเป็นชุดเดียวกันโดยไม่ดูความชันเลย
+        """
+        shape = (64, 64)
+        depth = np.full(shape, 2, dtype=np.int32)
+        relief = np.zeros(shape, dtype=np.int32)
+        lake = np.zeros(shape, dtype=bool)          # ลำน้ำล้วน ไม่ใช่ทะเลสาบ
+        torrent = np.full(shape, 200, dtype=np.uint8)
+        calm = np.zeros(shape, dtype=np.uint8)
+
+        fast = P.lakebed_materials(
+            depth, relief, lake, x0=100, z0=200, flow_index=torrent)
+        slow = P.lakebed_materials(
+            depth, relief, lake, x0=100, z0=200, flow_index=calm)
+
+        fine = [P.LAKEBED[n] for n in ("sand", "clay", "mud")]
+        rock = [P.LAKEBED[n] for n in ("cobble", "stone")]
+        self.assertFalse(np.isin(fast, fine).any(), "แก่งยังมีตะกอนละเอียด")
+        self.assertTrue(np.isin(fast, rock).all())
+        self.assertTrue(np.isin(slow, fine).any(), "น้ำนิ่งควรมีตะกอนละเอียด")
+
+    def test_without_a_flow_field_the_old_stream_palette_still_applies(self):
+        """ชุด product เก่าไม่มี flow_index — ต้องไม่พัง แค่ไม่ได้ของใหม่"""
+        shape = (16, 16)
+        got = P.lakebed_materials(
+            np.full(shape, 2, dtype=np.int32),
+            np.zeros(shape, dtype=np.int32),
+            np.zeros(shape, dtype=bool),
+            x0=0, z0=0,
+        )
+
+        self.assertTrue((got == P.LAKEBED["stream"]).all())
+
+    def test_plants_do_not_grow_in_a_torrent(self):
+        n = 128
+        depth = np.full((n, n), 3, dtype=np.int32)
+        bed_kind = np.full((n, n), P.LAKEBED["gravel"], dtype=np.uint8)
+        relief = np.zeros((n, n), dtype=np.int32)
+        torrent = np.full((n, n), 200, dtype=np.uint8)
+
+        short, tall, lily = P.aquatic_vegetation_masks(
+            depth, bed_kind, relief, x0=1200, z0=3400, flow_index=torrent
+        )
+
+        self.assertFalse((short | tall | lily).any())
+
+    def test_reeds_stay_away_from_fast_water(self):
+        # ใช้ผังเดียวกับเทสต์กกเดิม — เล็กกว่านี้แล้ว noise ของถิ่นที่อยู่ไม่ผ่าน
+        # เกณฑ์ความหนาแน่นเลย ทำให้ "ไม่มีกก" ด้วยเหตุผลที่ไม่เกี่ยวกับกระแสน้ำ
+        shape = (256, 256)
+        water = np.zeros(shape, dtype=bool)
+        water[:, 80:176] = True
+        depth = np.zeros(shape, dtype=np.uint8)
+        depth[:, 80] = 1
+        depth[:, 81:175] = 8
+        depth[:, 175] = 2
+        ground = ~water
+        torrent = np.full(shape, 200, dtype=np.uint8)
+
+        calm_reeds = P.riparian_reed_heights(
+            water, depth, ground, x0=600, z0=900,
+            flow_index=np.zeros(shape, dtype=np.uint8),
+        )
+        fast_reeds = P.riparian_reed_heights(
+            water, depth, ground, x0=600, z0=900, flow_index=torrent,
+        )
+
+        self.assertTrue(calm_reeds.any(), "ผังทดสอบไม่มีกกเลยตั้งแต่ต้น")
+        self.assertFalse(fast_reeds.any())
+
     def test_aquatic_vegetation_clusters_on_shallows_and_avoids_deep_water(self):
         n = 256
         depth = np.full((n, n), 3, dtype=np.int32)

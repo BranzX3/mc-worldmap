@@ -246,3 +246,64 @@ class SectionOwnershipTests(unittest.TestCase):
 
         self.assertTrue(left and right)
         self.assertFalse(left & right, "id ของสองสายชนกัน")
+
+
+class FlowFieldTests(unittest.TestCase):
+    """ทิศทางและแรงของน้ำ — ของที่ระบบนิเวศริมน้ำต้องใช้ตัดสิน"""
+
+    def test_flow_points_downstream(self):
+        """ทิศต้องชี้ไปทางที่น้ำไหลลง ไม่ใช่ย้อนขึ้น"""
+        terrain = np.full((24, 24), 130, dtype=np.int32)
+        plan = CS.plan_from_profile(
+            straight_profile(top=110, drop=1.0), terrain,
+            np.full((24, 24), 1.0),
+        )
+        out = CS.stamp_sections([plan], terrain)
+        wet = out["water"]
+
+        # ผังนี้ z เพิ่มขึ้นตามน้ำที่ไหลลง — flow_z ต้องเป็นบวกทั้งหมด
+        self.assertTrue(wet.any())
+        self.assertTrue((out["flow_z"][wet] > 0).all(), "ทิศน้ำชี้ย้อนขึ้น")
+        self.assertTrue((np.abs(out["flow_x"][wet]) < 32).all(), "ทิศเบี่ยง")
+
+    def test_steeper_water_gets_a_higher_flow_index(self):
+        """ช่วงชันต้องแรงกว่าช่วงราบ — ถ้าเท่ากันแปลว่าตัวเลขไม่ได้ถูกใช้จริง"""
+        terrain = np.full((40, 24), 200, dtype=np.int32)
+        slope = np.full((40, 24), 1.0)
+        gentle = CS.plan_from_profile(
+            straight_profile(length=30, top=150, drop=0.1), terrain, slope)
+        steep = CS.plan_from_profile(
+            straight_profile(length=30, top=150, drop=2.0), terrain, slope)
+
+        a = CS.stamp_sections([gentle], terrain)
+        b = CS.stamp_sections([steep], terrain)
+
+        self.assertLess(
+            int(a["flow"][a["water"]].mean()),
+            int(b["flow"][b["water"]].mean()),
+        )
+
+    def test_still_water_has_no_flow(self):
+        """ผิวน้ำราบสนิท = ดัชนีศูนย์ ไม่ใช่ค่าน้อย ๆ ที่ยังเปิดพืชผิดชนิด"""
+        terrain = np.full((24, 24), 130, dtype=np.int32)
+        plan = CS.plan_from_profile(
+            straight_profile(top=110, drop=0.0), terrain,
+            np.full((24, 24), 1.0),
+        )
+        out = CS.stamp_sections([plan], terrain)
+
+        self.assertTrue(out["water"].any())
+        self.assertEqual(int(out["flow"][out["water"]].max()), 0)
+
+    def test_flow_is_only_written_where_there_is_water(self):
+        terrain = np.full((24, 24), 130, dtype=np.int32)
+        plan = CS.plan_from_profile(
+            straight_profile(top=110, drop=1.0), terrain,
+            np.full((24, 24), 1.0),
+        )
+        out = CS.stamp_sections([plan], terrain)
+        dry = ~out["water"]
+
+        self.assertFalse(out["flow"][dry].any())
+        self.assertFalse(out["flow_x"][dry].any())
+        self.assertFalse(out["flow_z"][dry].any())

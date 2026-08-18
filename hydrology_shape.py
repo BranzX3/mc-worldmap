@@ -1628,6 +1628,12 @@ def shape_waterway_sections(
         # เท่ากันจริงไหม *หลัง* ด่านที่แก้ผิวน้ำตามหลัง (weir, mouth, seal,
         # ผสมทะเลสาบ) ถ้าไม่บอกไว้ ตัววัดต้องเดาด้วย EDT แล้วจับผิดตัวบนเส้นทแยง
         "section_id": np.where(way, stamped["section"], 0).astype(np.int32),
+        # ทิศทางและแรงของน้ำไหล — วัสดุก้นน้ำ พืชน้ำ และกก ต้องตัดสินจากตรงนี้
+        # ไม่ใช่จากความลึกอย่างเดียว (ลำธารเชี่ยวลึก 2 บล็อกกับแอ่งนิ่งลึก 2
+        # บล็อกเป็นคนละที่อยู่อาศัย แต่ความลึกบอกไม่ได้)
+        "flow_x": np.where(way, stamped["flow_x"], 0).astype(np.int8),
+        "flow_z": np.where(way, stamped["flow_z"], 0).astype(np.int8),
+        "flow_index": np.where(way, stamped["flow"], 0).astype(np.uint8),
         "waterway_kind": kind,
         "waterfall_lip_mask": waterfall_lip,
         "waterfall_foot_mask": waterfall_foot,
@@ -2147,6 +2153,11 @@ def shape_hydrology_patch(
         "section_id": flowing.get(
             "section_id", np.zeros(way.shape, dtype=np.int32)
         ),
+        "flow_x": flowing.get("flow_x", np.zeros(way.shape, dtype=np.int8)),
+        "flow_z": flowing.get("flow_z", np.zeros(way.shape, dtype=np.int8)),
+        "flow_index": flowing.get(
+            "flow_index", np.zeros(way.shape, dtype=np.uint8)
+        ),
         "waterfall_lip_mask": waterfall_lip,
         "waterfall_foot_mask": flowing["waterfall_foot_mask"],
         "waterfall_drop": flowing["waterfall_drop"],
@@ -2340,6 +2351,9 @@ def _global_output_arrays(out_dir, shape):
         # เดิมเดาเจ้าของหน้าตัดเอาเองจาก EDT
         "centerline_y": np.int16,
         "section_id": np.int32,
+        "flow_x": np.int8,
+        "flow_z": np.int8,
+        "flow_index": np.uint8,
     }
     return {
         key: np.lib.format.open_memmap(
