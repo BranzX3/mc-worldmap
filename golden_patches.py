@@ -128,7 +128,13 @@ def patch_path(spec):
     )
 
 
-SHAPE_INPUTS = ("hydrology_shape.py", "config.py", "surface.py")
+# ทุกไฟล์ที่เปลี่ยนรูปร่างของ patch ได้ ต้องอยู่ในนี้ — ขาดไปหนึ่งไฟล์แปลว่า
+# `run` จะหยิบ npz เก่ามาใช้เงียบ ๆ แล้วรายงานว่า "ไม่มีอะไรเปลี่ยน"
+# (channel_sections.py เคยขาด: แก้กติกาการชนกันของหน้าตัดแล้วทุก patch ยังขึ้น
+# `cached` ทั้งชุด)
+SHAPE_INPUTS = (
+    "hydrology_shape.py", "channel_sections.py", "config.py", "surface.py",
+)
 
 
 def git_revision():
@@ -420,26 +426,62 @@ def patch_metrics(patch, base_terrain):
     # หน้าตัดที่ผิวน้ำไม่เท่ากัน = ขั้น 1 บล็อกวิ่งขนานลำน้ำ เดินเลียบฝั่งเห็นชัด
     # ---- ขั้นที่ตาเห็นว่าผิด = ขั้นที่วิ่ง *ขนาน* ลำน้ำ ----
     #
-    # นิยามเดิม (run ตามแกนที่ไม่ราบ) ใช้กับสถาปัตยกรรมหน้าตัดไม่ได้: ลำน้ำที่
+    # นิยามที่ 1 (run ตามแกนที่ไม่ราบ) ใช้กับสถาปัตยกรรมหน้าตัดไม่ได้: ลำน้ำที่
     # ไหลลงย่อมมีขั้นตามแนวไหลเป็นเรื่องปกติ และ run ตามแกนก็คร่อมหลายหน้าตัด
-    # ตัวเลขเดิมจึงรายงานการออกแบบว่าเป็นการละเมิด (วัดได้ 2,458 ทั้งที่หน้าตัด
-    # ทุกอันราบ)
     #
-    # ตัวที่ผู้ใช้เห็นแล้วบ่นคือ "ยืนกลางน้ำแล้วสองฝั่งไม่เท่ากัน" = cell สองตัวที่
-    # อยู่ห่างจากร่องกลางเท่ากันแต่ระดับต่างกัน  วัดตรงนั้นแทน
-    # ใช้ระยะถึง *ฝั่ง* เป็นตัวบอกว่าสอง cell อยู่ตำแหน่งสมมาตรกันข้ามลำน้ำ —
-    # ไม่ต้องพึ่ง centerline_y ซึ่งผังสังเคราะห์ในเทสต์ไม่มี
-    from scipy import ndimage as _nd
-    reach = _nd.distance_transform_edt(water)
-    unflat = 0
-    for dst, src in _cardinal_pairs(water.shape):
-        pair = np.zeros(water.shape, dtype=bool)
-        pair[src] = (
-            way[dst] & way[src] & core[dst] & core[src]
-            & (np.abs(reach[dst] - reach[src]) < 0.3)
-            & (surface[dst] != surface[src])
+    # นิยามที่ 2 (คู่ cell ติดกันที่ระยะถึงฝั่งเท่ากัน) เป็นบั๊กตัวเดียวกันในรูป
+    # ใหม่ ไม่ใช่การแก้: cell สองตัวที่ติดกัน *ตามแนวไหล* ก็ห่างจากฝั่งเท่ากัน
+    # เสมอ ทุกขั้นที่น้ำไหลลงตามปกติจึงถูกนับ  วัดแล้วพบว่า 52-100% ของที่นับได้
+    # เป็นคู่ตามแนวไหล และผังสังเคราะห์ที่หน้าตัดราบทุกแถวแต่ไหลลง 1 บล็อกทุก
+    # 3 แถว ให้ค่า 12 ทั้งที่ไม่มีอะไรผิดเลย (เทสต์เดิมจับไม่ได้เพราะผิวน้ำราบ
+    # สนิททั้งผัง — ไม่มีเคสน้ำไหลลง)
+    #
+    # นิยามที่ 3 (เทียบกับ centerline ที่ใกล้ที่สุดด้วย EDT) ถูกเรื่องหลักการ
+    # แต่ *จับ cell เข้าหน้าตัดผิดตัว* บนเส้นทแยง: cell ที่อยู่ข้าง centerline
+    # ของตัวเองในแนวทแยง กลับประชิด centerline ของสถานีถัดไปมากกว่า วัดที่
+    # hill_junction ได้ 82 cell ที่ 'ผิด' ทั้งที่ทุกตัวถือระดับของหน้าตัดที่
+    # ประชิดตัวเองจริง (0 ตัวที่ไม่ตรงกับ centerline ข้างเคียงเลย)
+    #
+    # นิยามนี้ไม่เดา: `section_id` มาจาก `stamp_sections` โดยตรง = cell นี้เป็น
+    # ของหน้าตัดไหน  กติกาที่ตรวจคือ **cell ที่อยู่หน้าตัดเดียวกันต้องมีผิวน้ำ
+    # เท่ากัน** ซึ่งตรงกับ "ยืนกลางน้ำแล้วสองฝั่งไม่เท่ากัน" พอดี และภูมิคุ้มกัน
+    # การไหลลงโดยสิ้นเชิง (คนละหน้าตัดไม่เคยถูกเทียบกัน)
+    #
+    # ไม่ใช่การถามซ้ำสิ่งที่เพิ่งเขียน: หลัง stamp ยังมีอีกหลายด่านที่แก้ผิวน้ำ
+    # (build_step_weirs, mouth clamp, limit_masked_steps, seal, ผสมทะเลสาบ)
+    # ด่านพวกนั้นคือสิ่งที่ตัวเลขนี้จับ
+    fields = getattr(patch, "files", patch)
+    if "section_id" not in fields:
+        # ห้ามคืน 0 เพราะ 0 อ่านเป็น "ผ่าน" ทั้งที่ยังไม่ได้วัดอะไรเลย
+        # (ผลิตภัณฑ์ระดับโลกใน hydrology_global/ ยังไม่มี section_id.npy —
+        # `audit_global.py` จะชนตรงนี้จนกว่าจะเพิ่มเข้าไปในชุดที่เขียนลงดิสก์)
+        raise ValueError(
+            "patch ไม่มี section_id — unflat_cross_runs วัดไม่ได้ "
+            "(ต้องเป็นผังจาก stamp_sections หรือประกาศ section_id เอง)"
         )
-        unflat += int(pair.sum())
+    section_id = np.asarray(patch["section_id"], dtype=np.int64)
+    owned = way & core & (section_id > 0)
+    unflat = 0
+    if owned.any():
+        ids = section_id[owned]
+        levels = surface[owned]
+        # ระดับอ้างอิงของหน้าตัด = ค่าที่พบมากที่สุดในหน้าตัดนั้น (ไม่ใช่ค่าแรก
+        # ที่เจอ) — cell ส่วนน้อยที่หลุดออกจากพวกคือตัวที่ผู้เล่นเห็นเป็นขั้น
+        order = np.lexsort((levels, ids))
+        ids, levels = ids[order], levels[order]
+        start = np.flatnonzero(
+            np.concatenate(([True], (ids[1:] != ids[:-1]) | (levels[1:] != levels[:-1])))
+        )
+        run_len = np.diff(np.concatenate((start, [ids.size])))
+        run_id = ids[start]
+        # ต่อหนึ่ง section: run ที่ยาวที่สุดคือระดับอ้างอิง ที่เหลือคือคนหลุด
+        head = np.flatnonzero(
+            np.concatenate(([True], run_id[1:] != run_id[:-1]))
+        )
+        bounds = np.concatenate((head, [run_id.size]))
+        for a, b in zip(bounds[:-1], bounds[1:]):
+            sizes = run_len[a:b]
+            unflat += int(sizes.sum() - sizes.max())
 
     # ความยาวแอ่ง — แอ่งสั้นทั้งสาย = น้ำลดทีละบล็อกแทบทุกก้าว (อาการที่ 2)
     pools = []

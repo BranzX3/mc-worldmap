@@ -20,12 +20,21 @@ def make_patch(size=12):
     terrain[water] = 100
     depth = np.zeros((size, size), dtype=np.uint8)
     depth[water] = 2
+    center = np.full((size, size), UNRESOLVED, dtype=np.int16)
+    center[:, 5] = surface[:, 5]
+    # หน้าตัดของลำน้ำตรงที่ไหลไปตามแกน z คือ *หนึ่งแถว* — `unflat_cross_runs`
+    # ตรวจว่า cell ที่ section_id เดียวกันผิวน้ำเท่ากันไหม ผังที่ไม่ประกาศจะ
+    # วัดไม่ได้ (raise) เหมือนผังจริงที่ไม่ได้มาจาก stamp_sections
+    section = np.zeros((size, size), dtype=np.int32)
+    section[water] = (np.arange(size)[:, None] + 1).repeat(size, axis=1)[water]
     return {
         "water_mask": water,
         "waterway_mask": water.copy(),
         "surface_y": surface,
         "terrain_y": terrain,
         "depth": depth,
+        "centerline_y": center,
+        "section_id": section,
         "waterfall_top_y": np.full((size, size), UNRESOLVED, dtype=np.int16),
         "bounds": np.asarray([0, size, 0, size]),
     }
@@ -79,6 +88,54 @@ class GoldenPatchMetricTests(unittest.TestCase):
         self.assertGreater(
             G.patch_metrics(patch, base)["unflat_cross_runs"], 0
         )
+
+    def test_water_flowing_downhill_is_not_counted(self):
+        """น้ำไหลลงเป็นเรื่องปกติของลำน้ำ ไม่ใช่ขั้นที่วิ่งขนานลำน้ำ
+
+        นิยามสองรุ่นแรกนับคู่ cell ที่ติดกันตามแนวไหลด้วย ผังนี้ (หน้าตัดราบ
+        ทุกแถว ไหลลง 1 บล็อกทุก 3 แถว) จึงเคยได้ 12 ทั้งที่ไม่มีอะไรผิด
+        """
+        patch = make_patch()
+        step = (np.arange(patch["surface_y"].shape[0]) // 3).astype(np.int16)
+        patch["surface_y"] -= step[:, None]
+        water = patch["water_mask"]
+        patch["terrain_y"][water] = patch["surface_y"][water]
+        center = patch["centerline_y"]
+        center[:, 5] = patch["surface_y"][:, 5]      # ร่องกลางไหลลงตามน้ำ
+        base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)
+
+        self.assertEqual(
+            G.patch_metrics(patch, base)["unflat_cross_runs"], 0
+        )
+
+    def test_only_cells_of_the_same_section_are_compared(self):
+        """หน้าตัดคนละอันอยู่คนละระดับได้ ในหน้าตัดเดียวกันต้องเท่ากัน
+
+        เคสนี้แยกสองเรื่องที่นิยามเก่าปนกัน: ผังนี้มีหน้าตัดที่ระดับต่างกันทุกแถว
+        (ปกติ) และมี cell เดียวที่หลุดจากพวกในหน้าตัดของตัวเอง (ผิด) — ต้องนับ
+        ได้ 1 ไม่ใช่ 0 และไม่ใช่จำนวนขั้นตามแนวไหล
+        """
+        patch = make_patch()
+        step = (np.arange(patch["surface_y"].shape[0]) // 3).astype(np.int16)
+        patch["surface_y"] -= step[:, None]
+        water = patch["water_mask"]
+        patch["terrain_y"][water] = patch["surface_y"][water]
+        patch["centerline_y"][:, 5] = patch["surface_y"][:, 5]
+        base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)
+        self.assertEqual(G.patch_metrics(patch, base)["unflat_cross_runs"], 0)
+
+        patch["surface_y"][7, 6] -= 1        # หลุดจากหน้าตัดของตัวเองหนึ่งตัว
+        self.assertEqual(G.patch_metrics(patch, base)["unflat_cross_runs"], 1)
+
+    def test_a_patch_without_sections_cannot_pass(self):
+        """วัดไม่ได้ต้องไม่อ่านเป็น 'ผ่าน' — ไม่งั้นผังที่ยังไม่มี section_id
+        จะได้ 0 ฟรีทั้งที่ไม่เคยตรวจอะไรเลย"""
+        patch = make_patch()
+        del patch["section_id"]
+        base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)
+
+        with self.assertRaises(ValueError):
+            G.patch_metrics(patch, base)
 
     def test_terrain_lift_and_cut_are_reported_separately(self):
         """สันดิน (ยก) กับร่องลึก (ขุด) เป็นคนละ artifact ห้ามหักลบกัน"""
