@@ -29,6 +29,7 @@
 """
 
 import numpy as np
+from scipy import ndimage
 
 # ---- พารามิเตอร์ของหน้าตัด ----
 # ทุกตัวคือ "สิ่งที่ผู้เล่นเห็น" ไม่ใช่ค่าปรับจูนลอย ๆ
@@ -177,7 +178,28 @@ def pool_bonus(stage, min_pool=6):
     return bonus
 
 
-def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH):
+def outer_rim_field(terrain, reach=MAX_BANK_BLOCKS):
+    """พื้นดินที่ *ขอบนอก* ของแถบตลิ่ง — ตัวตั้งของคำถาม "ต้องลาดไกลแค่ไหน"
+
+    เดิม `plan_from_profile` ใช้ ``terrain`` ที่ cell กลางร่องเป็น rim ซึ่งเป็นจุด
+    ที่ต่ำที่สุดของหน้าตัดอยู่แล้ว (วัดที่ wild_canyon: สูงกว่าผิวน้ำ p50 1 บล็อก
+    ขณะที่พื้นดินจริงห่างออกไป 8 บล็อกสูงกว่าผิวน้ำ p50 8 / p90 17) ผลคือ ``need``
+    เกือบศูนย์เสมอ ``reach`` ยุบเหลือ ~2 และแถบตลิ่งไม่เคยถูกสร้างจริง — ทั้ง
+    `MAX_BANK_BLOCKS`, `BANK_MAX_CUT` และการเฟดขอบแถบจึงไม่เคยมีผล เพราะแถบสั้น
+    เกินกว่าจะไปชนเพดานพวกนั้น วัดได้ว่าที่ระยะ >=4 บล็อกจากน้ำ พื้นดินไม่ถูกแตะ
+    เลยสักบล็อก (carve min 0 max 0) ลำน้ำจึงเป็นร่องเปียกที่ถูกแปะลงบนพื้นดิบ
+
+    ใช้ค่าสูงสุดในรัศมี ``reach`` เพราะสิ่งที่ต้องกลืนคือ *ยอด* ของผนัง ไม่ใช่
+    ค่าเฉลี่ย — ถ้าใช้ค่าเฉลี่ยแถบจะยังสั้นกว่าผนังที่มันต้องไปบรรจบ
+    """
+    size = int(max(1, reach)) * 2 + 1
+    return ndimage.maximum_filter(
+        np.asarray(terrain, dtype=np.int32), size=size, mode="nearest"
+    )
+
+
+def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
+                      outer_rim=None):
     """แปลง profile หนึ่งเส้น (1D) เป็นหน้าตัดต่อ sample
 
     ``profile`` คือ dict จาก `hydrology_shape.line_profile_entries` ซึ่งให้
@@ -205,7 +227,11 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH):
         slope_field[gz, gx].astype(np.float32), MIN_BANK_SLOPE, MAX_BANK_SLOPE
     )
     # ตลิ่งต้องไต่จากผิวน้ำขึ้นไปถึงพื้นเดิม ระยะที่ต้องใช้ = ส่วนต่าง / ความชัน
-    rim = terrain[gz, gx].astype(np.float32)
+    #
+    # "พื้นเดิม" ต้องวัดที่ขอบนอกของแถบ ไม่ใช่ที่กลางร่อง — ดู `outer_rim_field`
+    if outer_rim is None:
+        outer_rim = outer_rim_field(terrain)
+    rim = np.asarray(outer_rim)[gz, gx].astype(np.float32)
     need = np.maximum(0.0, rim - stage.astype(np.float32) - SHORE_RISE) / local
     reach = np.clip(
         np.rint(np.ceil(half) + SHORE_BLOCKS + need), 1, MAX_BANK_BLOCKS
@@ -239,14 +265,23 @@ def stamp_sections(plans, terrain, protect=None):
     kind = np.zeros(terrain.shape, dtype=np.uint8)
     owner_offset = np.full(terrain.shape, 1 << 30, dtype=np.int32)
     centerline = np.zeros(terrain.shape, dtype=bool)
+    # cell นี้เป็นของหน้าตัดไหน (สาย, สถานี) — 0 = ไม่ใช่ของใคร
+    #
+    # จำเป็นสำหรับ harness: ถ้าไม่บอกว่าใครเป็นเจ้าของ ตัววัดต้องเดาเอาเองด้วย
+    # EDT ซึ่งบนเส้นทแยงจะจับ cell เข้าหน้าตัดข้าง ๆ แทนของตัวเอง แล้วรายงาน
+    # หน้าตัดที่ราบสนิทว่าไม่ราบ (วัดที่ hill_junction ได้ 82 cell ที่ 'ผิด'
+    # ทั้งที่ทุกตัวถือระดับของหน้าตัดที่ประชิดตัวเองจริง ๆ)
+    section = np.zeros(terrain.shape, dtype=np.int32)
     protect = (
         np.zeros(terrain.shape, dtype=bool) if protect is None
         else np.asarray(protect, dtype=bool)
     )
 
-    for plan in plans:
+    for plan_no, plan in enumerate(plans, start=1):
         if plan is None or len(plan) == 0:
             continue
+        # id ที่ไม่ชนกันข้ามสาย — สถานีมากสุดต่อสายอยู่ระดับพัน ใช้ฐาน 1e6 กันชน
+        plan_base = plan_no * 1_000_000
         tx = np.gradient(plan.x.astype(np.float64))
         tz = np.gradient(plan.z.astype(np.float64))
         norm = np.hypot(tx, tz)
@@ -271,6 +306,29 @@ def stamp_sections(plans, terrain, protect=None):
             bed_max = plan.bed[active][ok]
             slope = plan.slope[active][ok]
             line_kind = plan.kind[active][ok]
+            reach_line = plan.reach[active][ok].astype(np.float32)
+            station = (np.flatnonzero(active)[ok] + 1).astype(np.int32)
+
+            # profile ถูก sample ทุก 0.5 บล็อก (`DENSIFY_SPACING`) หลายสถานีจึง
+            # ตกลง cell เดียวกันเสมอ ไม่ใช่กรณีพิเศษ  การเขียนแบบ fancy-index
+            # ปล่อยให้ "คนเขียนทีหลังชนะ" ซึ่งไม่มีอะไรรับประกันใน numpy —
+            # บังคับกติกาที่ประกาศไว้ (ระดับต่ำกว่าชนะ) ตรงนี้แทนการพึ่งลำดับ
+            #
+            # เคยลองเปลี่ยนเป็น "สถานีที่เล็งตรงที่สุดชนะ" เพื่อไล่หน้าตัดที่ไม่
+            # ราบ วัดแล้วพบว่า **ไม่ได้อะไรเลย** (unflat 0 เท่ากันทั้งสองแบบ
+            # เพราะ cell ถือระดับของสถานีที่เป็นเจ้าของมันอยู่แล้ว) แต่ผิวน้ำที่
+            # ค้างสูงทำให้การซีลตลิ่งยกดินเพิ่ม: ผนังริมน้ำ hill_junction
+            # 492 -> 574 และ steep_stream 445 -> 520  จึงคงกติกาเดิมไว้
+            flat = pz * width + px
+            order = np.lexsort((stage, flat))
+            keep = np.ones(order.size, dtype=bool)
+            keep[1:] = flat[order][1:] != flat[order][:-1]
+            uniq = order[keep]
+            px, pz = px[uniq], pz[uniq]
+            stage, half = stage[uniq], half[uniq]
+            bed_max, slope = bed_max[uniq], slope[uniq]
+            line_kind, reach_line = line_kind[uniq], reach_line[uniq]
+            station = station[uniq]
 
             free = ~protect[pz, px]
             better = (owner_offset[pz, px] > step) | (
@@ -283,7 +341,8 @@ def stamp_sections(plans, terrain, protect=None):
             stage, half = stage[take], half[take]
             bed_max, slope = bed_max[take], slope[take]
             line_kind = line_kind[take]
-            reach_here = plan.reach[active][ok][take].astype(np.float32)
+            reach_here = reach_line[take]
+            station = station[take]
             owner_offset[pz, px] = step
 
             wet = step <= np.maximum(half, 0.5)
@@ -293,6 +352,7 @@ def stamp_sections(plans, terrain, protect=None):
                 d = bed_depth_across(step, half[wet], bed_max[wet])
                 water[wz, wx] = True
                 surface[wz, wx] = wstage
+                section[wz, wx] = plan_base + station[wet]
                 depth[wz, wx] = d
                 shaped[wz, wx] = wstage - d
                 kind[wz, wx] = line_kind[wet]
@@ -357,4 +417,5 @@ def stamp_sections(plans, terrain, protect=None):
         "water": water,
         "kind": kind,
         "centerline": centerline,
+        "section": section,
     }

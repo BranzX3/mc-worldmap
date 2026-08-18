@@ -1499,6 +1499,8 @@ def shape_waterway_sections(
 
     # ความชันไหล่เขาของ patch นี้ — ตัวกำหนดว่าตลิ่งต้องลาดแค่ไหนถึงจะกลืน
     slope_field = hillside_rise_per_block(base_y, minimum=0.0)
+    # พื้นดินที่ขอบนอกของแถบตลิ่ง — คำนวณครั้งเดียวต่อ patch แล้วใช้ร่วมทุกเส้น
+    outer_rim = CS.outer_rim_field(base_y.astype(np.int32))
     local = []
     for profile in profiles:
         bx0, bx1, bz0, bz1 = profile["bounds"]
@@ -1511,7 +1513,9 @@ def shape_waterway_sections(
             "radius": profile["radius"],
             "kind": profile["kind"],
         }
-        plan = CS.plan_from_profile(shifted, base_y.astype(np.int32), slope_field)
+        plan = CS.plan_from_profile(
+            shifted, base_y.astype(np.int32), slope_field, outer_rim=outer_rim,
+        )
         if plan is not None:
             local.append(plan)
 
@@ -1611,6 +1615,10 @@ def shape_waterway_sections(
         "centerline_y": np.where(
             stamped["centerline"] & way, surface, UNRESOLVED
         ).astype(np.int16),
+        # หน้าตัดที่เป็นเจ้าของ cell — harness ใช้ตรวจว่าหน้าตัดเดียวกันผิวน้ำ
+        # เท่ากันจริงไหม *หลัง* ด่านที่แก้ผิวน้ำตามหลัง (weir, mouth, seal,
+        # ผสมทะเลสาบ) ถ้าไม่บอกไว้ ตัววัดต้องเดาด้วย EDT แล้วจับผิดตัวบนเส้นทแยง
+        "section_id": np.where(way, stamped["section"], 0).astype(np.int32),
         "waterway_kind": kind,
         "waterfall_lip_mask": waterfall_lip,
         "waterfall_foot_mask": waterfall_foot,
@@ -2125,6 +2133,11 @@ def shape_hydrology_patch(
         "depth": depth,
         "water_kind": kind,
         "centerline_y": flowing["centerline_y"],
+        # ตัวขึ้นรูปแบบเก่า (USE_SECTION_CHANNEL=False) ไม่มีหน้าตัดให้อ้างถึง —
+        # ปล่อยเป็นศูนย์ แล้ว harness จะบอกว่า 'วัดไม่ได้' แทนที่จะบอกว่า 'ผ่าน'
+        "section_id": flowing.get(
+            "section_id", np.zeros(way.shape, dtype=np.int32)
+        ),
         "waterfall_lip_mask": waterfall_lip,
         "waterfall_foot_mask": flowing["waterfall_foot_mask"],
         "waterfall_drop": flowing["waterfall_drop"],

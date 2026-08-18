@@ -189,3 +189,56 @@ class SectionShapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SectionOwnershipTests(unittest.TestCase):
+    """ใครเป็นเจ้าของ cell — เรื่องนี้ตัดสินทั้งความราบของหน้าตัดและตัววัด"""
+
+    def test_when_two_stations_hit_one_cell_the_lower_stage_wins(self):
+        """profile ถูก sample ทุก 0.5 บล็อก สองสถานีตกช่องเดียวกันเป็นเรื่องปกติ
+
+        กติกาที่ประกาศคือระดับต่ำกว่าชนะ ไม่ใช่ "คนเขียนทีหลังชนะ" ซึ่ง numpy
+        ไม่รับประกัน  ผังนี้ไล่ระดับ *ขึ้น* ตามลำดับ array เพื่อให้สองกติกาให้
+        คำตอบต่างกัน: ถ้าพึ่งลำดับจะได้ 105 ถ้าบังคับกติกาจะได้ 100
+        """
+        terrain = np.full((24, 24), 130, dtype=np.int32)
+        profile = {
+            "x": np.full(8, 10, dtype=np.int32),
+            "z": np.repeat(np.arange(4, 8, dtype=np.int32), 2),
+            "stage": np.array([100, 105] * 4, dtype=np.int32),
+            "radius": 1.0,
+            "kind": 3,
+        }
+        plan = CS.plan_from_profile(profile, terrain, np.full((24, 24), 1.0))
+
+        out = CS.stamp_sections([plan], terrain)
+        wet = out["water"]
+
+        self.assertTrue(wet.any())
+        self.assertEqual(int(out["surface"][wet].max()), 100)
+
+    def test_every_water_cell_names_its_section(self):
+        """cell น้ำที่ไม่มีเจ้าของ = ตัววัดต้องเดา ซึ่งเป็นที่มาของตัวเลขผิด"""
+        terrain = np.full((24, 24), 120, dtype=np.int32)
+        plan = CS.plan_from_profile(
+            straight_profile(x=10), terrain, np.full((24, 24), 1.0)
+        )
+
+        out = CS.stamp_sections([plan], terrain)
+
+        self.assertTrue((out["section"][out["water"]] > 0).all())
+        self.assertFalse(out["section"][~out["water"]].any())
+
+    def test_sections_of_different_lines_do_not_share_ids(self):
+        """สองสายที่วางคู่กันต้องไม่ถูกนับเป็นหน้าตัดเดียวกัน"""
+        terrain = np.full((24, 24), 120, dtype=np.int32)
+        slope = np.full((24, 24), 1.0)
+        a = CS.plan_from_profile(straight_profile(x=6, top=100), terrain, slope)
+        b = CS.plan_from_profile(straight_profile(x=16, top=100), terrain, slope)
+
+        out = CS.stamp_sections([a, b], terrain)
+        left = set(np.unique(out["section"][:, :11][out["water"][:, :11]]).tolist())
+        right = set(np.unique(out["section"][:, 11:][out["water"][:, 11:]]).tolist())
+
+        self.assertTrue(left and right)
+        self.assertFalse(left & right, "id ของสองสายชนกัน")
