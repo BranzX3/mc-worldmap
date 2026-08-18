@@ -8,11 +8,11 @@
 | งาน | ตัวเลขปัจจุบัน |
 |---|---|
 | แยก lake/river/stream ตั้งแต่ OSM | **prototype ผ่าน:** `water_sources.npz` เก็บ polygon, ordered way, kind, width |
-| river profile + channel carving | **patch ผ่านโครงสร้าง:** 4-connected, ไหลลง, reshape ก่อน build; ยังไม่รัน global |
+| river profile + channel carving | **รัน global แล้ว 2026-08-18** (`hydrology_global2`): audit 30 หน้าต่าง invariant 0/0/0, รอยต่อ tile 4.41% เทียบภายใน 4.29% |
 | lake bank terrain | **patch ผ่านโครงสร้าง:** dry bank ต่ำกว่าน้ำ 0/208; ยังไม่รัน global |
 | bathymetry | **patch ผ่านโครงสร้าง:** depth 1..26, max-depth share 3.18%; ยังไม่รัน global |
 | waterfall | **patch ใหม่:** สร้างจาก directed profile เฉพาะ drop 3–4 พร้อม lip/curtain/pool |
-| shoreline ecology / พืชน้ำ | รอ geometry และ flow field ชุดใหม่ก่อน |
+| shoreline ecology / พืชน้ำ | **มีแล้วบางส่วน:** `flow_index` + `water_ecology.py` ตัดสินวัสดุก้นน้ำ/หญ้าน้ำ/ใบบัว/กกจากความชันลำน้ำ ยืนยันด้วยบล็อกจริงแล้ว — ที่ยังขาดคือ exposure ของทะเลสาบ (fetch ลม) |
 | ~~ลำธารเป็นปล่องหิน~~ | **แก้แล้ว:** น้ำที่อยู่ในหุบ 93% -> 21% (hill_junction), ขุดลึกสุด 123 -> 33 ดู `WATER_REDESIGN.md` |
 | ตลิ่งยังเป็นขั้นเกินธรรมชาติ | **เหลืออยู่:** `bank_unwalkable_excess` +6..10% (เทียบ DEM ดิบ) |
 | ร่องน้ำลึกเกินเพดาน | **เหลืออยู่ ตัวใหญ่สุด:** การยุบหน้าตัดต่อยอดตัวเองจนลึก p90 27 บล็อก — `canyon_share_excess` สูงสุด 66.9% ทางแก้ที่เสนอ: ยุบเข้าหาระดับ centerline แทนค่าต่ำสุดของ run (ดู `WATER_REDESIGN.md`) |
@@ -61,8 +61,12 @@ hydrology context 384 บล็อก เขียนลงโลกแล้ว
 
 ## 5. Ecotone
 
-`scrub` จาก OSM (4.10% ของแผนที่) **ไม่ถูกอ้างถึงที่ไหนเลยทั้ง repo** — เป็นชั้น
-พุ่มระหว่างป่ากับทุ่ง/หินที่หายไปทั้งชั้น
+**แก้แล้ว 2026-08-18**: `PALETTE["scrub"]` (ดินหยาบ/พอดโซล/กรวดเป็นหลัก) +
+โซน `scrub` ใน `vegetation.ground_cover` (azalea เป็นทรงพุ่ม, พุ่มเบอร์รี่เหนือ
+900 m, เฟิร์นตามร่องชื้น, พุ่มแห้ง/ดินโล่งบนที่แห้ง) และ painter เลือกโซนจาก
+landcover ก่อนดู forest_p
+
+ที่ยังขาด: ขอบป่าที่ค่อย ๆ จางเข้าหาพุ่ม (ตอนนี้พุ่มกับป่ายังตัดขอบกันตรง ๆ)
 
 ## 6. ภูเขา — room ที่เหลือ
 
