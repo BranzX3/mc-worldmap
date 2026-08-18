@@ -33,6 +33,10 @@ GLOBAL_PRODUCTS = {
     "waterfall_lip_mask": "waterfall_lip_mask.npy",
     "waterfall_pool_mask": "waterfall_pool_mask.npy",
     "affected_chunks": "affected_chunks.npy",
+    # ของที่ harness ใช้ตัดสินหน้าตัด — ประกาศไว้ที่นี่ด้วยเพื่อให้เทสต์ tiling
+    # จับได้ถ้า `--global` ลืมเขียนตัวใดตัวหนึ่ง
+    "centerline_y": "centerline_y.npy",
+    "section_id": "section_id.npy",
 }
 
 

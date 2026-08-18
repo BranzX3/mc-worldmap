@@ -19,8 +19,19 @@ TILE = 512
 
 
 def audit(root, windows=40, size=384, seed=1):
+    # `section_id` กับ `centerline_y` เป็นของบังคับ ไม่ใช่ของแถม — ถ้าไม่มี
+    # `patch_metrics` จะบอกว่าวัด unflat_cross_runs ไม่ได้แล้ว raise  product
+    # ที่สร้างก่อน 2026-08-18 ไม่มีสองตัวนี้ ต้องรัน --global ใหม่
     names = ("terrain_y", "surface_y", "water_mask", "waterway_mask",
-             "standing_water_mask", "depth", "waterfall_top_y")
+             "standing_water_mask", "depth", "waterfall_top_y",
+             "centerline_y", "section_id")
+    missing = [n for n in names if not os.path.exists(os.path.join(root, f"{n}.npy"))]
+    if missing:
+        raise SystemExit(
+            f"{root} ขาด product: {', '.join(missing)}
+"
+            "ชุดนี้สร้างจากโค้ดรุ่นเก่า — รัน `python hydrology_shape.py --global` ใหม่"
+        )
     data = {
         n: np.load(os.path.join(root, f"{n}.npy"), mmap_mode="r") for n in names
     }
