@@ -186,6 +186,15 @@ PALETTE = {
                       ("moss", .12), ("mushroom", .10), ("packed_mud", .08),
                       ("rooted", .06), ("coarse", .04)],
     "alpine":    [("grass", .48), ("moss", .24), ("pale_moss", .10), ("gravel", .10), ("coarse", .05), ("stone", .03)],
+    # พุ่มเตี้ย (`natural=scrub|heath` 4.1% ของแผนที่) — ชั้นที่หายไปทั้งชั้น
+    #
+    # ในแอลป์นี่คือแถบ Latschenkiefer/อัลเพนโรส/จูนิเปอร์เหนือแนวป่าและตาม
+    # ที่ลาดหินร่วน  พื้นไม่ใช่ทุ่งหญ้าเรียบ: ดินบางสลับหินโผล่ ใบไม้ผุใต้พุ่ม
+    # ถ้าปล่อยให้ตกไปใช้ palette ตามระดับความสูง (ซึ่งเป็นสิ่งที่เกิดขึ้นมา
+    # ตลอด) มันจะกลายเป็นทุ่งหญ้าเรียบแบบเดียวกับที่ราบ
+    "scrub":     [("coarse", .28), ("grass", .22), ("podzol", .16),
+                  ("gravel", .12), ("moss", .10), ("dirt", .07),
+                  ("stone", .05)],
     # เหนือแนวไม้ที่ไม่ใช่ผา — หินโล่งมีไลเคนเกาะ
     "barren":    [("gravel", .26), ("tuff", .22), ("stone", .16), ("pale_moss", .14), ("andesite", .12), ("coarse", .10)],
     "scree":     [("gravel", .36), ("cobble", .22), ("tuff", .18), ("stone", .14), ("andesite", .10)],
@@ -599,6 +608,9 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     surf[broad] = pick(r, PALETTE["floor_broad"])[broad]
     surf[conifer] = pick(r, PALETTE["floor_conifer"])[conifer]
     surf[dampf] = pick(r, PALETTE["floor_damp"])[dampf]
+    # พุ่มเตี้ยต้องมาก่อน scree/หิน เพราะที่ลาดพุ่มมักซ้อนกับที่ลาดหินร่วง
+    m = landcover == LC["scrub"]
+    surf[m] = pick(r, PALETTE["scrub"])[m]
     m = landcover == LC["scree"]
     surf[m] = pick(r, PALETTE["scree"])[m]
 

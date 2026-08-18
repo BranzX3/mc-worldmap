@@ -990,7 +990,7 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                          waterfall_lip_mask=None,
                          waterfall_pool_mask=None,
                          flowing_water_mask=None,
-                         flow_index=None):
+                         flow_index=None, landcover=None):
     """เตรียม array สำหรับผิวดิน ชั้นดิน น้ำ น้ำแข็ง และหิมะ
 
     array ที่คืนมามีพิกัด [x, z] เฉพาะกรอบจริง ไม่รวม padding การแยกขั้นนี้
@@ -1240,6 +1240,11 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "bed_relief": bed_relief,
         "bed_kind": bed_kind,
         "bed_id": bed_id,
+        # แถบพุ่มเตี้ยจาก OSM — 4.1% ของแผนที่ที่เดิมไม่มีโค้ดไหนอ้างถึงเลย
+        "scrub": (
+            np.zeros(shape, dtype=bool) if landcover is None
+            else np.asarray(landcover)[sx, sz] == S.LC["scrub"]
+        ),
         # ความชันของลำน้ำต่อพัน — ตัวตัดสินว่าอะไรอยู่ในน้ำได้บ้าง
         "flow": (
             np.zeros(shape, dtype=np.uint8) if flow_core is None
@@ -2024,6 +2029,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         waterfall_pool_mask=waterfall_pool_mask,
         flowing_water_mask=flowing_water_mask,
         flow_index=flow_index,
+        landcover=lc,
     )
     object_surface = surf_y.copy()
     object_surface[
@@ -2203,6 +2209,10 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         fp = float(forest_p[ix, iz])
         if name == "mud" or dense["wet_shore"][qx, qz]:
             zone = "wetland"
+        elif dense["scrub"][qx, qz]:
+            # ต้องมาก่อน forest/meadow — พุ่มบนที่ลาดมี forest_p สูงพอจะถูก
+            # นับเป็นป่า แล้วชั้นพุ่มก็หายไปเหมือนเดิม
+            zone = "scrub"
         elif fp > 0.28:
             zone = "forest"
         elif e > S.TREELINE:

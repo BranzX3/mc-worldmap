@@ -250,6 +250,29 @@ def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
             return ("tall_grass", True)
         return None
 
+    if zone == "scrub":
+        # แถบพุ่มเตี้ยของแอลป์ (Latschenkiefer / อัลเพนโรส / จูนิเปอร์) — ทึบกว่า
+        # ทุ่งหญ้าแต่ไม่ใช่ป่า สิ่งที่ตาอ่านคือ "พุ่มสูงระดับเข่าเป็นหย่อม สลับ
+        # ดินโล่งกับหินโผล่" ไม่ใช่หญ้าเรียบทั้งผืน
+        #
+        # วานิลลาไม่มีพุ่มจริง จึงใช้ azalea เป็นทรงพุ่มใบเข้ม (บล็อกเต็ม 1 ช่อง)
+        # ผสมกับพุ่มเบอร์รี่ที่มีหนามและเฟิร์นสูงตามร่องชื้น
+        cover = 0.34 + 0.42 * patch_c
+        if r > cover:
+            return None
+        if patch_a > 0.62 and r < cover * 0.22:
+            return ("flowering_azalea" if patch_b > 0.72 else "azalea", False)
+        if elev > 900 and patch_a > 0.55 and r < cover * 0.30:
+            return ("sweet_berry_bush", False)
+        if damp > 0.60 and r < cover * 0.42:
+            return ("large_fern", True) if patch_b > 0.6 else ("fern", False)
+        # ที่แห้งและบางเป็นดินเปล่ากับพุ่มแห้ง ไม่ใช่หญ้าเขียว
+        if damp < 0.40 and r < cover * 0.30:
+            return ("dead_bush", False)
+        if r < cover * 0.70:
+            return ("short_grass", False)
+        return ("tall_grass", True)
+
     if zone == "alpine":
         # เหนือแนวไม้ — โล่ง ลมแรง พืชเตี้ยและห่าง
         cover = 0.16 + 0.30 * patch_c
