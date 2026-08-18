@@ -34,6 +34,8 @@ from scipy import ndimage
 # ช่วงหมายเลขสถานีต่อหนึ่งเส้น — เส้นยาวสุดในแผนที่นี้ ~10,000 sample (0.5 บล็อก
 # ต่อ sample) เผื่อไว้ 2^17 แล้วยังอยู่ในช่วง int32 เมื่อคูณกับจำนวนเส้น (~6,000)
 SECTION_ID_STRIDE = 1 << 17
+# จำนวนเส้นสูงสุดที่ยังอยู่ในช่วง int32 เมื่อคูณกับ stride (แผนที่นี้มี ~4,900)
+MAX_SECTION_LINES = (2 ** 31 - 1) // SECTION_ID_STRIDE - 1
 
 # ---- พารามิเตอร์ของหน้าตัด ----
 # ทุกตัวคือ "สิ่งที่ผู้เล่นเห็น" ไม่ใช่ค่าปรับจูนลอย ๆ
@@ -173,10 +175,10 @@ class SectionPlan:
     """
 
     __slots__ = ("x", "z", "stage", "half_width", "bed", "slope", "kind",
-                 "reach", "ident", "flow_x", "flow_z", "flow")
+                 "reach", "ident", "station", "flow_x", "flow_z", "flow")
 
     def __init__(self, x, z, stage, half_width, bed, slope, kind, reach,
-                 ident=0, flow_x=None, flow_z=None, flow=None):
+                 ident=0, station=None, flow_x=None, flow_z=None, flow=None):
         self.x = np.asarray(x, dtype=np.int32)
         self.z = np.asarray(z, dtype=np.int32)
         self.stage = np.asarray(stage, dtype=np.int32)
@@ -188,6 +190,14 @@ class SectionPlan:
         # หมายเลขของ *เส้น* ที่ profile นี้มาจาก — ต้องคงที่ข้าม tile ไม่งั้น
         # `section_id` ของสองฝั่งรอยต่อจะเป็นคนละหน้าตัดทั้งที่เป็นเส้นเดียวกัน
         self.ident = int(ident)
+        # หมายเลขสถานี **ในโปรไฟล์เต็ม** ไม่ใช่ดัชนีในอาร์เรย์นี้ — กรอบแต่ละ
+        # กรอบตัด sample ที่อยู่นอกตัวเองทิ้ง ถ้าใช้ดัชนีในอาร์เรย์ สถานีที่ 1
+        # ของ tile หนึ่งจะเป็นคนละที่กับสถานีที่ 1 ของอีก tile แล้ว section_id
+        # เดียวกันจะหมายถึงหน้าตัดคนละอันคนละมุมแผนที่
+        self.station = (
+            np.arange(1, self.x.size + 1, dtype=np.int32) if station is None
+            else np.asarray(station, dtype=np.int32)
+        )
         # ทิศทางการไหล (หน่วย) กับดัชนีแรงน้ำต่อสถานี — ผู้บริโภคปลายทาง
         # (วัสดุก้นน้ำ พืชน้ำ กก) ต้องใช้ ไม่ใช่เดาจากความลึกอย่างเดียว
         zeros = np.zeros(self.x.shape, dtype=np.float32)
@@ -272,6 +282,7 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
     stage = np.asarray(profile["stage"], dtype=np.int32)
     height, width = terrain.shape
     inside = (gx >= 0) & (gx < width) & (gz >= 0) & (gz < height)
+    station = np.flatnonzero(inside).astype(np.int32) + 1
     gx, gz, stage = gx[inside], gz[inside], stage[inside]
     # ต้องมีอย่างน้อยสอง sample ถึงจะหาทิศทางน้ำได้ — เส้นที่โผล่เข้ามาใน patch
     # แค่ cell เดียวไม่มีข้อมูลพอจะวางหน้าตัด (และ np.gradient ก็ระเบิด)
@@ -322,7 +333,7 @@ def plan_from_profile(profile, terrain, slope_field, max_bed=MAX_BED_DEPTH,
             "ไม่งั้น section_id ของคนละเส้นจะชนกัน"
         )
     return SectionPlan(gx, gz, stage, half, bed, local, kind, reach,
-                       ident=int(profile["ident"]),
+                       ident=int(profile["ident"]), station=station,
                        flow_x=tx / norm, flow_z=tz / norm, flow=flow)
 
 
@@ -367,6 +378,16 @@ def stamp_sections(plans, terrain, protect=None):
         # tile ด้วย subset ของ profile ชุดเดียวกัน ถ้าใช้ลำดับ cell สองฝั่งรอย
         # ต่อ tile จะได้ id คนละตัวทั้งที่เป็นหน้าตัดเดียวกัน
         plan_base = plan.ident * SECTION_ID_STRIDE
+        # กันไม่ให้ id ล้น int32 เงียบ ๆ แล้วสองหน้าตัดคนละมุมแผนที่ใช้เลขเดียวกัน
+        if plan.station.size and (
+            plan.ident > MAX_SECTION_LINES
+            or int(plan.station.max()) >= SECTION_ID_STRIDE
+        ):
+            raise ValueError(
+                f"section_id ล้นช่วง: เส้นที่ {plan.ident} สถานีสูงสุด "
+                f"{int(plan.station.max())} (เพดาน {MAX_SECTION_LINES} เส้น / "
+                f"{SECTION_ID_STRIDE} สถานีต่อเส้น)"
+            )
         tx = np.gradient(plan.x.astype(np.float64))
         tz = np.gradient(plan.z.astype(np.float64))
         norm = np.hypot(tx, tz)
@@ -392,7 +413,7 @@ def stamp_sections(plans, terrain, protect=None):
             slope = plan.slope[active][ok]
             line_kind = plan.kind[active][ok]
             reach_line = plan.reach[active][ok].astype(np.float32)
-            station = (np.flatnonzero(active)[ok] + 1).astype(np.int32)
+            station = plan.station[active][ok]
             fx_line = plan.flow_x[active][ok]
             fz_line = plan.flow_z[active][ok]
             flow_line = plan.flow[active][ok]

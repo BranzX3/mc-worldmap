@@ -1134,6 +1134,54 @@ class HydrologyShapeTests(unittest.TestCase):
             west & east, "สองสายใช้หมายเลขเส้นร่วมกัน = แจกตาม tile ไม่ใช่ตามเส้น"
         )
 
+    def test_one_section_id_never_covers_two_places(self):
+        """หน้าตัดหนึ่งอันคือแถบสั้น ๆ ขวางลำน้ำ ห้ามกระจายไปคนละมุมแผนที่
+
+        `plan_from_profile` ตัด sample ที่อยู่นอกกรอบทิ้ง ถ้านับสถานีจากดัชนีใน
+        อาร์เรย์ที่ตัดแล้ว สถานีที่ 1 ของแต่ละ tile จะเป็นคนละที่ แล้ว id เดียว
+        กันจะครอบ cell ที่อยู่ห่างกันหลายร้อยบล็อก — วัดจาก product จริงเจอ
+        หน้าตัดที่มีผิวน้ำสองระดับห่างกัน 51 บล็อกเพราะเหตุนี้
+        """
+        size, tile, halo = 96, 32, 8
+        terrain = (300 - np.arange(size, dtype=np.int16))[:, None]
+        terrain = np.repeat(terrain, size, axis=1).astype(np.int16)
+        run_z = np.arange(2, size - 2, dtype=np.float32)
+
+        source_dir = tempfile.mkdtemp()
+        out_dir = tempfile.mkdtemp()
+        original_here = H.HERE
+        try:
+            H.HERE = source_dir
+            np.save(os.path.join(source_dir, "terrain_y.npy"), terrain)
+            np.savez(
+                os.path.join(source_dir, "water_sources.npz"),
+                waterbody_mask=np.zeros((size, size), dtype=bool),
+                waterway_kind=np.zeros((size, size), dtype=np.uint8),
+                points_x=np.full(run_z.shape, 48.0, dtype=np.float32),
+                points_z=run_z,
+                offsets=np.asarray([0, len(run_z)], dtype=np.int32),
+                kind=np.asarray([3], dtype=np.uint8),
+                width_m=np.asarray([8.0], dtype=np.float32),
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                H.shape_hydrology_global(out_dir, tile_size=tile, halo=halo)
+            section = np.load(os.path.join(out_dir, "section_id.npy"))
+        finally:
+            H.HERE = original_here
+            shutil.rmtree(source_dir, ignore_errors=True)
+            shutil.rmtree(out_dir, ignore_errors=True)
+
+        worst = 0
+        for sid in np.unique(section[section > 0]):
+            zz, xx = np.nonzero(section == sid)
+            worst = max(worst, int(zz.max() - zz.min()),
+                        int(xx.max() - xx.min()))
+
+        self.assertLessEqual(
+            worst, 2 * CS.MAX_BANK_BLOCKS,
+            f"มีหน้าตัดที่กว้าง {worst} บล็อก = id ชนกันข้าม tile",
+        )
+
     def test_seam_report_separates_tile_edges_from_interior(self):
         """seam_step_report ต้องแยกขอบ tile ออกจากภายในได้ถูกต้อง"""
         surface = np.zeros((8, 8), dtype=np.int16)
