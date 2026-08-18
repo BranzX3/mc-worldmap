@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "grid": [
+    10000,
+    10000
+  ],
+  "tile_size": 512,
+  "halo": 24,
+  "max_surface_step": 2,
+  "waterfall_curtains": true,
+  "standing_components": 676,
+  "line_profiles": 4877,
+  "affected_chunks": 43855,
+  "seam_edges": 2984,
+  "seam_step2plus_share": 0.02379,
+  "interior_edges": 1634136,
+  "interior_step2plus_share": 0.02691,
+  "max_surface_step_observed": 29
+}

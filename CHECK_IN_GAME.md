@@ -109,8 +109,10 @@ python paint_surface.py --patch 2242 3057 256 --hydrology-patch golden_patches/h
 
 ## ถ้าอยากดูทั้งแผนที่แทนการดูทีละจุด
 
-ใช้ `hydrology_global_y` (halo 128) ชุดเดียวเท่านั้น — ผ่าน audit แล้ว (invariant 1/0/0
-จากการสุ่ม 30 หน้าต่างที่ครึ่งหนึ่งคร่อมรอยต่อ tile)
+**ล้าสมัยตั้งแต่ 2026-08-18**: `hydrology_global_y` ถูกย้ายไป
+`archive/hydrology_runs/` แล้ว และสร้างก่อนที่ shaper จะมี `section_id` กับ
+`outer_rim_field` — ตัวเลขและรูปทรงในนั้นไม่ตรงกับโค้ดปัจจุบัน ต้องรัน
+`hydrology_shape.py --global` ใหม่ก่อนใช้
 
 ```bash
 python build_terrain.py --hydrology-root hydrology_global_y

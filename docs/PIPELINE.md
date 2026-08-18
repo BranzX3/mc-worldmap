@@ -73,7 +73,7 @@ python paint_surface.py  [--patch x z size]
 `report_metrics` พิมพ์บรรทัด "product ที่วัด" ไว้ตอนต้นรายงานเพื่อให้เห็นทันที
 
 ```bash
-HR="--hydrology-root hydrology_global"
+HR="--hydrology-root hydrology_global"   # ชุดปัจจุบัน; ของรอบเก่าถูกย้ายไป archive/hydrology_runs/ แล้ว
 python report_metrics.py $HR              # ตัวเลขคุณภาพทั้งแผนที่ ไม่เปิดโลก
 python report_metrics.py --patch x z size $HR
 python render_preview.py 1200 <x> <z> <r> $HR   # top-down
@@ -112,7 +112,7 @@ python golden_patches.py compare before after # exit 1 ถ้ามีตัว�
 ### ตรวจ product ของ --global
 
 ```bash
-python audit_global.py hydrology_global_w --windows 40
+python audit_global.py hydrology_global_w --windows 40   # ต้องเป็นชุดที่สร้างหลังมี section_id
 ```
 
 อ่าน product ที่ `--global` สร้างไว้ตรง ๆ (คนละเส้นทางกับ `--patch`) แล้วสุ่ม

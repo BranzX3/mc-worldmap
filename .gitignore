@@ -18,6 +18,13 @@ paint_progress.vegetation.meta.json
 baseline_metrics.txt
 baseline_metrics.json
 
+# ที่เก็บของเก่า: product ระดับโลกของรอบทดลองที่ผ่านมา, log, ภาพทดลอง
+# ของใน archive/history/ ที่ track ไว้ (manifest ของแต่ละรอบ) ยังอยู่ใน git
+archive/hydrology_runs/
+archive/_probe/
+logs/
+previews/
+
 # Large Generated Data & Assets
 *.png
 *.npy
@@ -43,3 +50,4 @@ golden/final/*
 
 # product ของ --global ชุดละ 1.4 GB — สร้างใหม่ได้จาก hydrology_shape.py
 hydrology_global*/
+!archive/history/manifests/

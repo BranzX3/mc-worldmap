@@ -6,6 +6,18 @@
 | [DECISIONS.md](DECISIONS.md) | การตัดสินใจที่ผ่านการวัดแล้ว พร้อมตัวเลข — อ่านก่อนรื้ออะไร |
 | [TODO.md](TODO.md) | งานที่เหลือ เรียงตามตัวเลขที่วัดได้ |
 
+## ผังไดเรกทอรี (จัดใหม่ 2026-08-18)
+
+| ที่ | เก็บอะไร |
+|---|---|
+| root | โค้ด + **input ที่สร้างใหม่ไม่ได้** (`heightmap.png`, `water_sources.npz`, `landcover.npz`) และ product ระดับโลกที่ pipeline ใช้อยู่ (`terrain_y.npy` ฯลฯ) |
+| `golden/` | ผลของ harness แต่ละ tag (git เก็บแค่ `final`) |
+| `golden_patches/` | patch npz ที่ shape ไว้ใช้ซ้ำ |
+| `logs/` | log ของการรันทั้งหมด |
+| `previews/` | ภาพทดลอง/พรีวิวที่ไม่ใช่ input |
+| `archive/hydrology_runs/` | product `--global` ของรอบเก่า 22 ชุด (~31 GB) — **ล้าสมัยทั้งหมด** ตั้งแต่ shaper มี `section_id` สร้างใหม่ได้จาก `hydrology_shape.py --global` |
+| `archive/history/` | metric snapshot เก่า, ไฟล์ `.bak-newworld`, และ `manifests/` ของทุกรอบ global ที่ archive ไว้ (ยัง track ใน git) |
+
 ## เริ่มเซสชันใหม่ให้อ่านตามนี้
 
 1. `PIPELINE.md` — รู้ว่าอะไรต้องรันก่อนอะไร และห้ามคำนวณค่าซ้ำที่ไหน
