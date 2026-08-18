@@ -10,7 +10,7 @@
 | แยก lake/river/stream ตั้งแต่ OSM | **prototype ผ่าน:** `water_sources.npz` เก็บ polygon, ordered way, kind, width |
 | river profile + channel carving | **รัน global แล้ว 2026-08-18** (`hydrology_global2`): audit 30 หน้าต่าง invariant 0/0/0, รอยต่อ tile 4.41% เทียบภายใน 4.29% |
 | lake bank terrain | **patch ผ่านโครงสร้าง:** dry bank ต่ำกว่าน้ำ 0/208; ยังไม่รัน global |
-| bathymetry | **patch ผ่านโครงสร้าง:** depth 1..26, max-depth share 3.18%; ยังไม่รัน global |
+| bathymetry | **รัน global แล้ว** — `bed_flat_share` ไล่จนจบแล้วและสรุปว่าใช้เป็นด่านไม่ได้ (ดู WATER_REDESIGN) ตัวที่ยังวัดได้จริงคือ `bed_flat_lake` |
 | waterfall | **patch ใหม่:** สร้างจาก directed profile เฉพาะ drop 3–4 พร้อม lip/curtain/pool |
 | shoreline ecology / พืชน้ำ | **มีแล้วบางส่วน:** `flow_index` + `water_ecology.py` ตัดสินวัสดุก้นน้ำ/หญ้าน้ำ/ใบบัว/กกจากความชันลำน้ำ ยืนยันด้วยบล็อกจริงแล้ว — ที่ยังขาดคือ exposure ของทะเลสาบ (fetch ลม) |
 | ~~ลำธารเป็นปล่องหิน~~ | **แก้แล้ว:** น้ำที่อยู่ในหุบ 93% -> 21% (hill_junction), ขุดลึกสุด 123 -> 33 ดู `WATER_REDESIGN.md` |
