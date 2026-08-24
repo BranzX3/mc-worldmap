@@ -506,9 +506,22 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
     shape = depth.shape
     broad = S.smooth_noise(x0, z0, shape, 84.0, 7611, 3)
     medium = S.smooth_noise(x0, z0, shape, 42.0, 7682, 2)
+    # The broad/medium fields are appropriate for a lake basin but much wider
+    # than a 1-3 block stream.  Keep that field for lake sediment, and derive a
+    # second world-coordinate-anchored field for coherent riffle/bar patches in
+    # the stream.  Scale 4 is still smooth across several cells, not white-noise
+    # speckle, and the fixed world origin keeps tile boundaries deterministic.
+    fine = S.smooth_noise(x0, z0, shape, 4.0, 7741, 2)
+    stream_texture = np.clip(
+        0.35 * (broad * 0.5 + 0.5)
+        + 0.25 * (medium * 0.5 + 0.5)
+        + 0.40 * (fine * 0.5 + 0.5),
+        0.0, 0.999,
+    )
     texture = np.clip(
-        0.74 * (broad * 0.5 + 0.5)
-        + 0.26 * (medium * 0.5 + 0.5),
+        0.55 * (broad * 0.5 + 0.5)
+        + 0.25 * (medium * 0.5 + 0.5)
+        + 0.20 * (S.smooth_noise(x0, z0, shape, 7.0, 7741, 2) * 0.5 + 0.5),
         0.0, 0.999,
     )
     effective_depth = depth.astype(np.float32) + broad * 2.4 + medium * 0.8
@@ -524,9 +537,30 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
         result[stream] = LAKEBED["stream"]
     else:
         streambed = WE.streambed_materials(
-            flow_index, depth, stream, pool_mask=pool_mask, texture=texture
+            flow_index, depth, stream, pool_mask=pool_mask,
+            texture=stream_texture,
         )
         result[stream] = streambed[stream]
+        # A mapped lake mouth is a depositional transition, not an endless
+        # sand strip.  On still/slack cells touching the standing-water mask,
+        # raise the coarse fraction so at least a gravel bar can survive beside
+        # the fine deposit.  This is deterministic and spatial (cardinal
+        # contact), unlike adding random speckles to the whole stream.
+        lake_touch = np.zeros(shape, dtype=bool)
+        lake_touch |= lake_mask
+        for _ in range(2):
+            expanded = lake_touch.copy()
+            expanded[1:] |= lake_touch[:-1]
+            expanded[:-1] |= lake_touch[1:]
+            expanded[:, 1:] |= lake_touch[:, :-1]
+            expanded[:, :-1] |= lake_touch[:, 1:]
+            lake_touch = expanded
+        mouth = (
+            stream & lake_touch & (depth >= 2)
+            & (np.asarray(flow_index, dtype=np.int32) <= WE.SLACK_MAX)
+        )
+        result[mouth & (stream_texture < 0.60)] = LAKEBED["gravel"]
+        result[mouth & (stream_texture >= 0.85)] = LAKEBED["cobble"]
 
     shallow = wet & lake_mask & (effective_depth < 6.0)
     result[shallow & (texture < 0.46)] = LAKEBED["gravel"]

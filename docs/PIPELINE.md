@@ -78,8 +78,14 @@ python report_metrics.py $HR              # ตัวเลขคุณภาพ
 python report_metrics.py --patch x z size $HR
 python render_preview.py 1200 <x> <z> <r> $HR   # top-down
 python render_view.py --at <x> <z> --panorama $HR  # ระดับสายตา (near-field ยังพัง)
+python check_world_water.py --at <x> <z> --size 256 \
+  --hydrology-patch golden_patches/hydrology_patch_x<x>_z<z>_384.npz
 python -m unittest discover -s tests
 ```
+
+`check_world_water.py` ต้องรันหลัง build+paint patch และเป็นด่านโลกจริง: อ่านทุก
+คอลัมน์น้ำจาก region file, ตรวจ bed/top/source water และรายงานความต่อเนื่องของ
+วัสดุก้นน้ำ ต่างจาก save validation ใน painter ซึ่งสุ่มเพียง 16 จุด
 
 ถ้าไม่ใส่ `--hydrology-root` ทุกตัวจะอ่าน product ชุดเดิมจาก `make_water.py` +
 `make_water_levels.py` ซึ่งยังใช้ได้อยู่แต่ **ไม่ใช่ชุดที่เขียนลงโลกแล้ว**

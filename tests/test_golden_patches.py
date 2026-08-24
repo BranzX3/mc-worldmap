@@ -41,6 +41,9 @@ def make_patch(size=12):
 
 
 class GoldenPatchMetricTests(unittest.TestCase):
+    def test_selftest_fixture_exercises_all_required_metrics(self):
+        self.assertEqual(G.selftest(), 0)
+
     def test_a_clean_patch_violates_nothing(self):
         patch = make_patch()
         base = np.full(patch["terrain_y"].shape, 102, dtype=np.int16)

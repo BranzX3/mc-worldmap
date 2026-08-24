@@ -4,6 +4,10 @@ import build_terrain as B
 
 
 class BuildTerrainTests(unittest.TestCase):
+    def test_experimental_shelters_are_opt_in(self):
+        self.assertFalse(B.shelters_enabled(["build_terrain.py"]))
+        self.assertTrue(B.shelters_enabled(["build_terrain.py", "--shelters"]))
+
     def test_aligned_patch_uses_exclusive_chunk_end(self):
         self.assertEqual(
             B.patch_chunk_bounds(4864, 5888, 512, 10000),

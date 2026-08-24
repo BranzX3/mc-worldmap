@@ -14,8 +14,10 @@
 | waterfall | **patch ใหม่:** สร้างจาก directed profile เฉพาะ drop 3–4 พร้อม lip/curtain/pool |
 | shoreline ecology / พืชน้ำ | **มีแล้วบางส่วน:** `flow_index` + `water_ecology.py` ตัดสินวัสดุก้นน้ำ/หญ้าน้ำ/ใบบัว/กกจากความชันลำน้ำ ยืนยันด้วยบล็อกจริงแล้ว — ที่ยังขาดคือ exposure ของทะเลสาบ (fetch ลม) |
 | ~~ลำธารเป็นปล่องหิน~~ | **แก้แล้ว:** น้ำที่อยู่ในหุบ 93% -> 21% (hill_junction), ขุดลึกสุด 123 -> 33 ดู `WATER_REDESIGN.md` |
-| ตลิ่งยังเป็นขั้นเกินธรรมชาติ | **เหลืออยู่:** `bank_unwalkable_excess` +6..10% (เทียบ DEM ดิบ) |
-| ร่องน้ำลึกเกินเพดาน | **เหลืออยู่ ตัวใหญ่สุด:** การยุบหน้าตัดต่อยอดตัวเองจนลึก p90 27 บล็อก — `canyon_share_excess` สูงสุด 66.9% ทางแก้ที่เสนอ: ยุบเข้าหาระดับ centerline แทนค่าต่ำสุดของ run (ดู `WATER_REDESIGN.md`) |
+| ตลิ่งยังเป็นขั้นเกินธรรมชาติ | **ยังไม่ผ่าน:** `bank_unwalkable_excess` 10.7–21.4% ที่ player_liked/prototype/cliff/steep/hill; climb สูงสุด 8–10 บล็อก. แก้ safety แล้ว 2026-08-20: `SEAL_MAX_RAISE` ไม่สะสมจากหน้าตัดทับซ้อน (synthetic +6 -> <=+3) แต่ golden bank metrics ไม่ลด เพราะตัวเลขหลักมาจาก final water-edge seal/หน้าผาจริง — ต้องแยก feature กับ ordinary bank ก่อนปรับ geometry |
+| ร่องน้ำลึกเกินเพดาน | **แก้ใน golden patch ปัจจุบันแล้ว:** wild_canyon p90 27/26 -> 3/2 และ excess 0%; lake_mouth ยังเหลือ p90 13 / excess 13.3% ต้องสร้าง global ใหม่ก่อนอ้างว่าทั้งแผนที่ผ่าน |
+| วัสดุก้นน้ำเป็นแถบเดียว | **ดีขึ้นจาก materialfine/mouthbar 2026-08-20:** geometry readback 3 patch ยัง 0 error, wild/steep same-neighbour 88.2%/86.8%; lake-mouth stream 26 cells เปลี่ยน sand 100% เป็น sand 88.5% + gravel 11.5%, แต่ sample เล็กและ lake same-neighbour ยัง 94% |
+| global hard gate | **ผ่านใน `hydrology_global3` 2026-08-18:** ทะเลสาบลอยเหนือลำน้ำ 64 -> 0 cells, invariant อื่นยัง 0, seam 3.674% vs ภายใน 3.256%; ยังห้ามเรียกว่า visual ผ่านเพราะ terrain lift เพิ่มใน 4 golden metrics |
 | invariant ที่ต้องเป็นศูนย์ | **ผ่านครบ** 11 golden patches + สุ่มนอกชุด 10 จุด: ตลิ่งลอย 0, ช่องว่าง 0, หน้าตัดไม่ราบ 0 |
 
 ก่อนแตะโค้ดน้ำ/ภูมิประเทศ ให้รัน `python golden_patches.py run --tag before`
@@ -30,10 +32,16 @@ hydrology context 384 บล็อก เขียนลงโลกแล้ว
 ไม่มีบล็อกขาด/เกิน, ไม่มีน้ำเก่าค้างในตัวอย่าง 500 จุด และ vertical run สูงสุด
 7 บล็อกเกิดเฉพาะ waterfall feature (ของเดิมสูง 9–11 บล็อกตามแนวลำธาร)
 
-## 2. ถ้ำ / ชะง่อน — 0% ทั้งแผนที่
+## 2. ถ้ำ / ชะง่อน — unit safety ผ่าน แต่ยังไม่ผ่าน world gate
 
 `build_terrain.py` ถม `solid = ys <= tile` = **หินตัน 100% ไม่มีที่ว่างภายในเลย**
 โลกจาก heightmap เป็น 2.5D โดยนิยาม ผาสูง 36 บล็อกทุกลูกเป็นผนังตันเรียบ
+
+มี prototype `rock_shelters.py` ใน working tree แล้ว แก้ root cause ที่ seed อาจเห็น
+คอลัมน์ต่ำไกล 3 บล็อกแต่ไม่มีอากาศติดปากโพรงจริง และเพิ่ม test ตรวจว่าทุก cut
+component เชื่อมถึงอากาศภายนอกที่สูงพ้นน้ำ ปัจจุบันผ่าน 10/10 test แล้ว แต่
+`build_terrain` ยังปิดเป็น default และเปิดทดลองได้เฉพาะ `--shelters` จนกว่าจะ
+paint หน้าผาตัวแทนแล้วอ่านบล็อกจริงกลับครบทั้งพื้น เพดาน ปาก และการเชื่อมต่อ
 
 เป็นงานเดียวที่ต้องรื้อ `build_terrain` จริง ๆ **ต้องตัดสินก่อนเริ่ม:**
 โพรง/เพิงหินที่ผิว (เห็นจากนอก ไม่ลึก) หรือระบบถ้ำใต้ดินจริง (ยาว เชื่อมกัน

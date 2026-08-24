@@ -71,6 +71,26 @@ class SectionShapeTests(unittest.TestCase):
                 "ไม่มีชายฝั่ง — น้ำชนผนังทันที",
             )
 
+    def test_overlapping_sections_do_not_accumulate_shore_lift(self):
+        """เพดานยกตลิ่งต้องนับจาก DEM เดิม ไม่ใช่ต่อการเขียนซ้ำ
+
+        หน้าตัดคู่ขนานเป็นเคสเล็กที่สุดที่จำลองจุดบรรจบ/ทางน้ำทับกันได้:
+        ก่อนแก้ cell แห้งตรงกลางถูก seal สองรอบ จึงยกจาก 95 เป็น 101 (+6)
+        ทั้งที่ ``SEAL_MAX_RAISE`` ประกาศไว้ 3
+        """
+        terrain = np.full((24, 24), 95, dtype=np.int32)
+        slope = np.ones((24, 24), dtype=np.float32)
+        left = CS.plan_from_profile(
+            straight_profile(x=8, top=100, ident=11), terrain, slope
+        )
+        right = CS.plan_from_profile(
+            straight_profile(x=12, top=100, ident=12), terrain, slope
+        )
+
+        out = CS.stamp_sections([left, right], terrain)
+        dry_raise = out["terrain"][~out["water"]] - terrain[~out["water"]]
+        self.assertLessEqual(int(dry_raise.max()), CS.SEAL_MAX_RAISE)
+
     def test_stamping_never_digs_below_the_bed_it_declared(self):
         """ความลึกที่ประกาศคือความลึกที่ได้ ไม่มีกลไกไหนขุดต่อ"""
         terrain = np.full((24, 24), 100, dtype=np.int32)

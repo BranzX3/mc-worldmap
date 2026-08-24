@@ -1458,6 +1458,84 @@ def shape_standing_water_patch(
 USE_SECTION_CHANNEL = True
 
 
+def pin_profile_to_standing_water(
+    profile, standing_surface, x0=0, z0=0,
+    max_surface_step=MAX_WATERFALL_DROP, search_radius=3,
+):
+    """Apply standing-water levels as boundary conditions to one profile.
+
+    A flat-channel incision is useful away from lakes, but it must not lower the
+    channel below a lake that it touches.  Doing that leaves a one-block trench
+    through the mapped water polygon; Minecraft then spreads the higher lake
+    into it on tick.  The old mouth rule used ``minimum(stage, lake)`` and could
+    only lower a high inlet, never raise this low-channel case.
+
+    Lake levels are lower bounds, not a raster repair.  Propagate them along the
+    directed 1-D profile while preserving a non-increasing surface and the
+    declared maximum drop.  This happens before ``plan_from_profile`` so bed,
+    bank reach, flow index, and every stamped cross-section all see the same
+    final stage.
+    """
+    if profile.get("standing_pinned", False):
+        return profile
+
+    surface = np.asarray(standing_surface, dtype=np.int16)
+    if surface.ndim != 2:
+        raise ValueError("standing_surface must be 2D")
+    gx = np.asarray(profile["x"], dtype=np.int64) - int(x0)
+    gz = np.asarray(profile["z"], dtype=np.int64) - int(z0)
+    stage = np.asarray(profile["stage"], dtype=np.int32).copy()
+    if gx.shape != gz.shape or gx.shape != stage.shape or stage.ndim != 1:
+        raise ValueError("profile x, z, and stage must be matching 1D arrays")
+
+    target = np.full(stage.shape, UNRESOLVED, dtype=np.int32)
+    height, width = surface.shape
+    radius = max(0, int(search_radius))
+    for dz in range(-radius, radius + 1):
+        pz = gz + dz
+        for dx in range(-radius, radius + 1):
+            px = gx + dx
+            inside = (px >= 0) & (px < width) & (pz >= 0) & (pz < height)
+            if not inside.any():
+                continue
+            values = np.full(stage.shape, UNRESOLVED, dtype=np.int32)
+            values[inside] = surface[pz[inside], px[inside]].astype(np.int32)
+            target = np.maximum(target, values)
+
+    touches = target != UNRESOLVED
+    pinned = dict(profile)
+    pinned["standing_pinned"] = True
+    pinned["standing_contacts"] = int(touches.sum())
+    if not touches.any():
+        pinned["stage"] = stage.astype(np.int16)
+        return pinned
+
+    # Pin the contact samples exactly.  ``floor`` then describes the minimum
+    # feasible profile implied by every lake contact.  A downstream high lake
+    # raises all upstream samples (backwater); an upstream lake also constrains
+    # the downstream fall to no more than max_surface_step per sample.
+    stage[touches] = target[touches]
+    floor = np.full(stage.shape, np.iinfo(np.int32).min // 4, dtype=np.int32)
+    floor[touches] = target[touches]
+    for i in range(len(floor) - 2, -1, -1):
+        floor[i] = max(int(floor[i]), int(floor[i + 1]))
+    step = max(1, int(max_surface_step))
+    for i in range(1, len(floor)):
+        floor[i] = max(int(floor[i]), int(floor[i - 1]) - step)
+    stage = np.maximum(stage, floor)
+
+    # Settle toward downstream controls.  This retains the old, required
+    # behaviour where a high stream descends into a lower lake, while the floor
+    # prevents that descent from cutting any lake contact below its level.
+    for i in range(len(stage) - 2, -1, -1):
+        lower = max(int(stage[i + 1]), int(floor[i]))
+        upper = int(stage[i + 1]) + step
+        stage[i] = np.clip(stage[i], lower, upper)
+
+    pinned["stage"] = stage.astype(np.int16)
+    return pinned
+
+
 def shape_waterway_sections(
     base_y, sources, x0, x1, z0, z1, line_profiles=None,
     standing_mask=None, max_surface_step=MAX_WATERFALL_DROP,
@@ -1508,11 +1586,19 @@ def shape_waterway_sections(
     slope_field = hillside_rise_per_block(base_y, minimum=0.0)
     # พื้นดินที่ขอบนอกของแถบตลิ่ง — คำนวณครั้งเดียวต่อ patch แล้วใช้ร่วมทุกเส้น
     outer_rim = CS.outer_rim_field(base_y.astype(np.int32))
+    # Global shaping pins the full profiles once before tiling.  Patch shaping
+    # has only local standing-water context, so pin its freshly built profiles
+    # here.  The marker prevents a tile from applying a second, truncated pin.
+    standing_surface = np.where(body, base_y, UNRESOLVED).astype(np.int16)
     local = []
     for profile in profiles:
         bx0, bx1, bz0, bz1 = profile["bounds"]
         if bx1 <= x0 - 2 or bx0 >= x1 + 2 or bz1 <= z0 - 2 or bz0 >= z1 + 2:
             continue
+        profile = pin_profile_to_standing_water(
+            profile, standing_surface, x0=x0, z0=z0,
+            max_surface_step=max_surface_step,
+        )
         shifted = {
             "x": np.asarray(profile["x"], dtype=np.int32) - x0,
             "z": np.asarray(profile["z"], dtype=np.int32) - z0,
@@ -1527,34 +1613,6 @@ def shape_waterway_sections(
         )
         if plan is not None:
             local.append(plan)
-
-    # ---- ปากน้ำ: ลำธารต้องลงไปถึงระดับทะเลสาบจริง ----
-    #
-    # โครงสร้างเดิมทำด้วยการ "ตอก" ค่าลงบน raster แล้วต้องมีกฎยกเว้นตามมาอีกชุด
-    # ที่นี่มันเป็นแค่การแก้ stage ของ sample ท้าย ๆ ก่อนวางหน้าตัด — หน้าตัดที่
-    # ถูกวางจึงต่อเนื่องกับทะเลสาบตั้งแต่ต้น ไม่มีอะไรต้องซ่อมทีหลัง
-    if body.any():
-        lake_level = np.where(body, base_y.astype(np.int32), UNRESOLVED)
-        near_lake = ndimage.maximum_filter(lake_level, size=7)
-        touches = ndimage.binary_dilation(
-            body, structure=ndimage.generate_binary_structure(2, 2),
-            iterations=3,
-        )
-        for plan in local:
-            at_lake = touches[plan.z, plan.x]
-            if not at_lake.any():
-                continue
-            target = near_lake[plan.z, plan.x]
-            valid = at_lake & (target != UNRESOLVED)
-            if not valid.any():
-                continue
-            # ลงได้อย่างเดียว ไม่ยกขึ้น แล้วไล่ให้ช่วงเหนือขึ้นไปลาดตามอย่างต่อเนื่อง
-            plan.stage[valid] = np.minimum(plan.stage[valid], target[valid])
-            for i in range(len(plan) - 1, 0, -1):
-                plan.stage[i - 1] = min(
-                    int(plan.stage[i - 1]),
-                    int(plan.stage[i]) + int(MAX_WATERFALL_DROP),
-                )
 
     stamped = CS.stamp_sections(local, base_y.astype(np.int32), protect=body)
     way = stamped["water"] & ~body
@@ -2497,6 +2555,18 @@ def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
         f"{int(levels.min())}..{int(levels.max())}" if levels.size else "n/a"
     )
     print(f"standing components {component_count:,} | levels {level_range}")
+
+    # Lake levels are global boundary conditions.  Pin before splitting into
+    # tiles so a contact just beyond one tile's halo still produces the same
+    # upstream stage everywhere that profile is stamped.
+    profiles = [
+        pin_profile_to_standing_water(profile, standing_surface)
+        for profile in profiles
+    ]
+    contact_count = sum(
+        int(profile.get("standing_contacts", 0)) for profile in profiles
+    )
+    print(f"standing-water profile contacts {contact_count:,}")
 
     outputs = _global_output_arrays(out_dir, terrain.shape)
     height, width = terrain.shape

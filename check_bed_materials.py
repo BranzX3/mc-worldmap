@@ -11,6 +11,8 @@
 ใช้:
     python check_bed_materials.py --at 7296 4480 --radius 120
     python check_bed_materials.py --at 5792 5384 --radius 120 --root hydrology_global2
+    python check_bed_materials.py --at 5792 5384 --radius 120 \
+        --root hydrology_global2 --hydrology-patch golden_patches/hydrology_patch_x5792_z5384_384.npz
 """
 
 import os
@@ -20,6 +22,7 @@ from collections import Counter
 import numpy as np
 
 import config as C
+import hydrology_patch_io as H
 import water_ecology as WE
 from pipeline_progress import use_utf8_stdout
 
@@ -27,22 +30,65 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UNRESOLVED = np.iinfo(np.int16).min
 
 
-def sample_bed(root, cx, cz, radius, limit=700, seed=3):
+def hydrology_window(root, cx, cz, radius, patch=None):
+    """Load the exact hydrology fields used to paint one world window.
+
+    A golden patch may be newer than the global product underneath it.  Every
+    field must therefore be overlaid from the same patch; mixing patch masks
+    with global depth was previously enough to make 16% of bed samples point
+    at water instead of the bed block.
+    """
+    x0, x1 = cx - radius, cx + radius
+    z0, z1 = cz - radius, cz + radius
+    window = (slice(z0, z1), slice(x0, x1))
+
+    def load(key):
+        path = H.water_product_path(key, root)
+        if path is None or not os.path.exists(path):
+            return None
+        return np.asarray(np.load(path, mmap_mode="r")[window])
+
+    fields = {
+        key: load(key) for key in (
+            "waterway_mask", "standing_water_mask", "surface_y", "depth",
+            "flow_index",
+        )
+    }
+    required = ("waterway_mask", "standing_water_mask", "surface_y", "depth")
+    missing = [key for key in required if fields[key] is None]
+    if missing:
+        raise FileNotFoundError(
+            f"{root} ขาด product สำหรับตรวจโลกจริง: {', '.join(missing)}"
+        )
+
+    if patch is not None:
+        missing = [key for key in required if key not in patch.files]
+        if missing:
+            raise ValueError(
+                "hydrology patch ขาด field สำหรับตรวจโลกจริง: "
+                + ", ".join(missing)
+            )
+        for key in required + ("flow_index",):
+            if key not in patch.files:
+                continue
+            base = fields[key]
+            if base is None:
+                base = np.zeros((z1 - z0, x1 - x0), dtype=patch[key].dtype)
+            fields[key] = H.overlay_window(base, patch, key, x0, x1, z0, z1)
+
+    return fields
+
+
+def sample_bed(root, cx, cz, radius, limit=700, seed=3, patch=None):
     import amulet
 
-    def load(name):
-        return np.load(os.path.join(root, name), mmap_mode="r")
-
-    window = (slice(cz - radius, cz + radius), slice(cx - radius, cx + radius))
-    way = np.asarray(load("waterway_mask.npy")[window])
-    still = np.asarray(load("standing_water_mask.npy")[window])
-    surface = np.asarray(load("surface_y.npy")[window]).astype(np.int32)
-    depth = np.asarray(load("depth.npy")[window]).astype(np.int32)
-    flow_path = os.path.join(root, "flow_index.npy")
-    flow = (
-        np.asarray(load("flow_index.npy")[window]).astype(np.int32)
-        if os.path.exists(flow_path) else None
-    )
+    fields = hydrology_window(root, cx, cz, radius, patch=patch)
+    way = np.asarray(fields["waterway_mask"], dtype=bool)
+    still = np.asarray(fields["standing_water_mask"], dtype=bool)
+    surface = np.asarray(fields["surface_y"], dtype=np.int32)
+    depth = np.asarray(fields["depth"], dtype=np.int32)
+    flow = fields["flow_index"]
+    flow = None if flow is None else np.asarray(flow, dtype=np.int32)
 
     counts = {"ลำธาร/แม่น้ำ": Counter(), "น้ำนิ่ง (ทะเลสาบ)": Counter()}
     if flow is not None:
@@ -103,7 +149,16 @@ def main():
     if not os.path.isdir(root):
         raise SystemExit(f"ไม่พบชุด product: {root}")
 
-    counts = sample_bed(root, cx, cz, radius)
+    patch = None
+    if "--hydrology-patch" in argv:
+        patch = H.load_hydrology_patch(
+            argv[argv.index("--hydrology-patch") + 1]
+        )
+    try:
+        counts = sample_bed(root, cx, cz, radius, patch=patch)
+    finally:
+        if patch is not None:
+            patch.close()
     print(f"=== ก้นน้ำรอบ ({cx}, {cz}) รัศมี {radius} ===")
     for kind, counter in counts.items():
         total = sum(counter.values())

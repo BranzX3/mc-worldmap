@@ -347,7 +347,12 @@ def stamp_sections(plans, terrain, protect=None):
     ``protect`` คือ cell ที่ห้ามแตะ (ทะเลสาบที่ขึ้นรูปไปแล้ว)
     """
     height, width = terrain.shape
-    shaped = terrain.astype(np.int32).copy()
+    # เก็บพื้นเดิมแยกจาก ``shaped`` เพราะหลายหน้าตัดอาจทับ cell เดียวกัน
+    # ``SEAL_MAX_RAISE`` ต้องเป็นเพดานต่อ cell จาก DEM เดิม ไม่ใช่เพดานต่อ
+    # การเขียนหนึ่งครั้ง มิฉะนั้นลำธารขนาน/จุดบรรจบจะสะสม +3 ซ้ำจนกลายเป็น
+    # คันดินโดยไม่รู้ตัว (สองหน้าตัดใน synthetic fixture เคยได้ +6)
+    original = terrain.astype(np.int32, copy=True)
+    shaped = original.copy()
     surface = np.full(terrain.shape, np.iinfo(np.int32).max, dtype=np.int32)
     depth = np.zeros(terrain.shape, dtype=np.int32)
     water = np.zeros(terrain.shape, dtype=bool)
@@ -517,7 +522,11 @@ def stamp_sections(plans, terrain, protect=None):
                 seal = np.where(
                     in_shore,
                     np.minimum(
-                        stage[dryside] + SHORE_RISE, current + SEAL_MAX_RAISE
+                        stage[dryside] + SHORE_RISE,
+                        np.minimum(
+                            current + SEAL_MAX_RAISE,
+                            original[dz, dx] + SEAL_MAX_RAISE,
+                        ),
                     ),
                     current,
                 )

@@ -732,6 +732,61 @@ class HydrologyShapeTests(unittest.TestCase):
             "ยังมีม่านน้ำที่ปากทะเลสาบทั้งที่ไม่มีหน้าผารองรับ",
         )
 
+    def test_flat_stream_is_not_incised_below_the_lake_it_enters(self):
+        """ปากน้ำบนที่ราบต้องไม่เป็นร่องต่ำกว่าทะเลสาบหนึ่งบล็อก
+
+        ``_incise_ceiling`` ตั้งใจลดลำน้ำบนที่ราบเพื่อให้มีตลิ่งธรรมชาติ แต่ถ้า
+        profile นั้นแตะทะเลสาบ ระดับทะเลสาบคือ boundary condition ที่สำคัญกว่า
+        ของจริงใน global2 เคยมีทะเลสาบสูงกว่าลำน้ำติดกัน 64 cell จากอาการนี้
+        (57 cell อยู่บน profile เดียวที่ถูกกดจาก 18 เหลือ 17)
+        """
+        size = 48
+        terrain = np.full((size, size), 18, dtype=np.int16)
+        body = np.zeros((size, size), dtype=bool)
+        body[size - 10:, :] = True
+        points_z = np.arange(2, size - 6, dtype=np.float32)
+        points_x = np.full(points_z.shape, 24.0, dtype=np.float32)
+        sources = {
+            "waterbody_mask": body,
+            "waterway_kind": np.zeros((size, size), dtype=np.uint8),
+            "points_x": points_x,
+            "points_z": points_z,
+            "offsets": np.asarray([0, len(points_z)], dtype=np.int32),
+            "kind": np.asarray([3], dtype=np.uint8),
+            "width_m": np.asarray([8.0], dtype=np.float32),
+        }
+
+        original_here = H.HERE
+        source_dir = tempfile.mkdtemp()
+        try:
+            H.HERE = source_dir
+            np.save(os.path.join(source_dir, "terrain_y.npy"), terrain)
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = H.shape_hydrology_patch(
+                    terrain, sources, 0, size, 0, size,
+                )
+        finally:
+            H.HERE = original_here
+            shutil.rmtree(source_dir, ignore_errors=True)
+
+        surface = result["surface_y"].astype(np.int32)
+        way = result["waterway_mask"]
+        lake = result["standing_water_mask"]
+        above = 0
+        for dst, src in (
+            (np.s_[1:, :], np.s_[:-1, :]),
+            (np.s_[:-1, :], np.s_[1:, :]),
+            (np.s_[:, 1:], np.s_[:, :-1]),
+            (np.s_[:, :-1], np.s_[:, 1:]),
+        ):
+            above += int((
+                lake[src] & way[dst] & (surface[src] > surface[dst])
+            ).sum())
+        self.assertEqual(
+            above, 0,
+            "การ incise สร้างร่องลำน้ำต่ำกว่าทะเลสาบที่ปากน้ำ",
+        )
+
     def test_stage_steps_move_to_the_narrow_part_of_the_channel(self):
         """ผิวน้ำต้องลดระดับตรงที่ลำน้ำแคบ ไม่ใช่กลางผืนกว้าง
 

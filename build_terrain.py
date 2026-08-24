@@ -32,6 +32,7 @@ from pipeline_progress import (
     working_set_mb,
     world_session_locked,
 )
+import rock_shelters as RS
 from hydrology_patch_io import load_hydrology_patch
 
 Image.MAX_IMAGE_PIXELS = None
@@ -91,6 +92,11 @@ def patch_chunk_bounds(center_x, center_z, size, grid_blocks):
     )
 
 
+def shelters_enabled(argv):
+    """Experimental shelters stay opt-in until every safety gate passes."""
+    return "--shelters" in argv
+
+
 def main():
     if world_session_locked(C.WORLD_PATH):
         raise SystemExit(
@@ -98,6 +104,9 @@ def main():
             "menu before running build_terrain.py"
         )
 
+    # โพรงผิวยังมี safety invariant ที่ไม่ผ่าน ห้ามปนเข้า build ปกติจนกว่าจะ
+    # พิสูจน์เรื่องทางเปิดและระดับพื้นครบ เปิดทดลองโดยตั้งใจด้วย --shelters
+    shelters = shelters_enabled(sys.argv)
     hydro_patch = None
     hydro_root = None
     if "--hydrology-root" in sys.argv:
@@ -261,6 +270,26 @@ def main():
                 ceil = min(C.Y_BUILD_CEILING, top + CLEAR_HEADROOM)
                 ys = np.arange(y_base, ceil + 1, dtype=np.int32)
                 solid = ys[None, :, None] <= tile[:, None, :]
+                # ---- โพรงผิว: เพิงผาและซอกหินบนหน้าผาที่เปิดออกอยู่แล้ว ----
+                #
+                # โลกจาก heightmap เป็น 2.5D โดยนิยาม ทุกคอลัมน์ตันตั้งแต่พื้น
+                # ถึงผิว ผาสูง 36 บล็อกทุกลูกจึงเป็นผนังเรียบไม่มีที่ว่างเลย
+                # `rock_shelters` เจาะเฉพาะหน้าผาจริง เว้นเพดานใต้ผิว และวางพื้น
+                # โพรงสูงกว่ายอดคอลัมน์ที่เปิดออก — สามข้อนี้ทำให้มันแตะผิวดินที่
+                # painter ทาไว้ไม่ได้ และน้ำข้างล่างไหลเข้าไม่ได้
+                if shelters:
+                    halo = RS.HALO
+                    hx0, hx1 = cx * CHUNK - halo, (cx + 1) * CHUNK + halo
+                    hz0, hz1 = cz * CHUNK - halo, (cz + 1) * CHUNK + halo
+                    if (
+                        hx0 >= 0 and hz0 >= 0
+                        and hx1 <= surf.shape[0] and hz1 <= surf.shape[1]
+                    ):
+                        hollow = RS.shelter_volume(
+                            surf[hx0:hx1, hz0:hz1], ys,
+                            cx * CHUNK, cz * CHUNK,
+                        )
+                        solid &= ~hollow
                 col = np.where(solid, stone, air).astype(np.uint32)
                 if bedrock is not None:
                     col[:, 0, :] = bedrock

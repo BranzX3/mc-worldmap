@@ -1167,9 +1167,18 @@ def selftest():
     terrain[water] = 100
     depth = np.zeros((size, size), dtype=np.uint8)
     depth[water] = 2
+    # หน้าตัดหนึ่งแถวต่อ section เหมือน fixture ใน test_golden_patches —
+    # metric ตั้งใจ reject ผังที่ไม่มี section_id เพื่อไม่ให้ "วัดไม่ได้" กลาย
+    # เป็นศูนย์ฟรี ดังนั้น selftest เองก็ต้องประกาศ ownership ให้ครบ
+    section = np.zeros((size, size), dtype=np.int32)
+    section[water] = (
+        (np.arange(size, dtype=np.int32)[:, None] + 1)
+        .repeat(size, axis=1)[water]
+    )
     clean = {
         "water_mask": water, "waterway_mask": water.copy(),
         "surface_y": surface, "terrain_y": terrain, "depth": depth,
+        "section_id": section,
         "waterfall_top_y": np.full((size, size), UNRESOLVED, dtype=np.int16),
         "bounds": np.asarray([0, size, 0, size]),
     }

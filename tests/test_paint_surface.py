@@ -307,6 +307,43 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertTrue(np.isin(fast, rock).all())
         self.assertTrue(np.isin(slow, fine).any(), "น้ำนิ่งควรมีตะกอนละเอียด")
 
+    def test_narrow_stream_texture_forms_coherent_material_patches(self):
+        """ลำน้ำแคบต้องมี riffle/bar เปลี่ยนวัสดุ ไม่เป็นสีเดียวทั้ง reach"""
+        shape = (128, 128)
+        depth = np.full(shape, 2, dtype=np.int32)
+        relief = np.zeros(shape, dtype=np.int32)
+        lake = np.zeros(shape, dtype=bool)
+        brisk = np.full(shape, 30, dtype=np.uint8)
+        got = P.lakebed_materials(
+            depth, relief, lake, x0=100, z0=200, flow_index=brisk,
+        )
+        self.assertGreaterEqual(np.unique(got).size, 2)
+        same = 0
+        edges = 0
+        for a, b in ((got[1:, :], got[:-1, :]), (got[:, 1:], got[:, :-1])):
+            same += int((a == b).sum())
+            edges += int(a.size)
+        self.assertLess(
+            same / edges, 0.90,
+            "วัสดุลำน้ำแคบยังเป็นแถบเดียวเกินไป",
+        )
+
+    def test_lake_mouth_has_a_coarse_bar_in_the_transition(self):
+        """ปากทะเลสาบต้องมีกรวดปน ไม่ใช่ทรายยาวเป็นสีเดียว"""
+        shape = (128, 128)
+        depth = np.zeros(shape, dtype=np.int32)
+        lake = np.zeros(shape, dtype=bool)
+        lake[60:, :] = True
+        depth[59, :] = 3              # still stream immediately upstream
+        depth[60:, :] = 3
+        got = P.lakebed_materials(
+            depth, np.zeros(shape, dtype=np.int32), lake,
+            x0=100, z0=200, flow_index=np.zeros(shape, dtype=np.uint8),
+        )
+        mouth = got[59, :]
+        self.assertIn(P.LAKEBED["sand"], mouth.tolist())
+        self.assertIn(P.LAKEBED["gravel"], mouth.tolist())
+
     def test_without_a_flow_field_the_old_stream_palette_still_applies(self):
         """ชุด product เก่าไม่มี flow_index — ต้องไม่พัง แค่ไม่ได้ของใหม่"""
         shape = (16, 16)
