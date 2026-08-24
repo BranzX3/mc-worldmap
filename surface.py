@@ -24,6 +24,33 @@ LC = {
 }
 
 
+def forest_ecotone_mask(landcover, water=None, width=2):
+    """คืนแถบ land รอบป่าที่เหมาะกับการเปลี่ยนเป็น scrub แบบค่อย ๆ จาง
+
+    OSM มักวาดขอบ forest เป็น polygon คม แต่ขอบป่าจริงมีพุ่มและต้นอ่อนคั่น
+    หลายเมตร ฟังก์ชันนี้ใช้ cardinal adjacency ที่คงที่ข้าม tile แทนการสุ่ม
+    ขยายรูปป่าด้วย noise และไม่นับน้ำเป็น ecotone
+    """
+    landcover = np.asarray(landcover)
+    forest = landcover == LC["forest"]
+    blocked = np.zeros(forest.shape, dtype=bool) if water is None else (
+        np.asarray(water, dtype=bool)
+    )
+    if blocked.shape != forest.shape:
+        raise ValueError("water and landcover ต้องรูปร่างเดียวกัน")
+    reached = forest.copy()
+    ring = np.zeros(forest.shape, dtype=bool)
+    for _ in range(max(0, int(width))):
+        expanded = reached.copy()
+        expanded[1:] |= reached[:-1]
+        expanded[:-1] |= reached[1:]
+        expanded[:, 1:] |= reached[:, :-1]
+        expanded[:, :-1] |= reached[:, 1:]
+        ring |= expanded & ~reached
+        reached = expanded
+    return ring & ~blocked
+
+
 def apply_water_mask(landcover, water_mask):
     """Return landcover adjusted to the derived, naturalized water outline.
 
@@ -611,6 +638,26 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     # พุ่มเตี้ยต้องมาก่อน scree/หิน เพราะที่ลาดพุ่มมักซ้อนกับที่ลาดหินร่วง
     m = landcover == LC["scrub"]
     surf[m] = pick(r, PALETTE["scrub"])[m]
+    # ขอบป่าจริงไม่จบเป็นเส้น polygon: สองบล็อกนอก forest เป็น scrub/พุ่ม
+    # แบบ dither โดยชั้นแรกหนากว่าชั้นที่สอง และใช้ roll แยกจากลายพื้นผิว
+    # เพื่อไม่ให้ขอบป่ากลายเป็นเส้นเดียวกับ texture ของหญ้า
+    forest = landcover == LC["forest"]
+    near_forest = forest.copy()
+    near_forest[1:] |= forest[:-1]
+    near_forest[:-1] |= forest[1:]
+    near_forest[:, 1:] |= forest[:, :-1]
+    near_forest[:, :-1] |= forest[:, 1:]
+    near_forest &= ~forest
+    ecotone = forest_ecotone_mask(landcover, landcover == LC["water"])
+    edge_roll = np.clip(
+        0.40 * white_noise(x0 / step, z0 / step, shape, seed + 1201)
+        + 0.60 * (nz(11, seed + 1202, 2) * 0.5 + 0.5),
+        0.0, 0.999,
+    )
+    edge_probability = np.where(near_forest, 0.72, 0.38)
+    ecotone &= edge_roll < edge_probability
+    scrub_edge = pick(r, PALETTE["scrub"])
+    surf[ecotone] = scrub_edge[ecotone]
     m = landcover == LC["scree"]
     surf[m] = pick(r, PALETTE["scree"])[m]
 

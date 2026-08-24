@@ -97,6 +97,8 @@ patches และเทียบหลาย reach เพราะการบ�
 ### 4. Landscape coherence
 
 - ขอบป่าต้องไล่จาก canopy -> ต้นเล็ก -> scrub -> meadow ไม่ตัดเป็นเส้น
+  (`surface.forest_ecotone_mask` ทำ scrub transition สองบล็อกแล้ว; canopy/ต้นเล็ก
+  ที่สัมพันธ์กันยังเป็นงานค้าง)
 - forest stand ต้องมีอย่างน้อย canopy, understory, gap และ deadwood ที่สัมพันธ์กัน
 - meadow ต้องแยก dry/wet/pasture ตามความชื้น ความชัน และ disturbance
 - สันเขาสูงต้องมี arête/rock exposure; glacier ต้องมี rock window, crevasse และ

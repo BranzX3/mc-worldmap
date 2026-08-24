@@ -56,6 +56,17 @@ class ScrubGroundTests(unittest.TestCase):
         scrub_side = set(np.unique(cls[:, 32:]).tolist())
         self.assertNotEqual(grass_side, scrub_side, "พุ่มยังหน้าตาเหมือนทุ่งหญ้า")
 
+    def test_forest_edge_has_a_two_block_ecotone(self):
+        shape = (64, 64)
+        landcover = np.full(shape, S.LC["grass"], dtype=np.uint8)
+        landcover[:, 30:34] = S.LC["forest"]
+        mask = S.forest_ecotone_mask(landcover)
+
+        self.assertTrue(mask[:, 28:30].any())
+        self.assertTrue(mask[:, 34:36].any())
+        self.assertFalse(mask[:, 30:34].any())
+        self.assertFalse(mask[:, :27].any())
+
 
 class ScrubVegetationTests(unittest.TestCase):
     def test_scrub_grows_bushes_that_meadow_does_not(self):
