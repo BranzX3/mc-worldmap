@@ -16,6 +16,30 @@ from hydrology_shape import UNRESOLVED
 
 
 class HydrologyShapeTests(unittest.TestCase):
+    def test_final_stream_bank_seal_keeps_a_global_raise_cap(self):
+        """final seal ห้ามลบเพดานยกจาก DEM ของหน้าตัดทิ้ง
+
+        ขอบน้ำต้องยกถึงผิวน้ำเพื่อรักษา hard invariant แต่ cell ที่ไม่ติดน้ำ
+        ต้องไม่ค้างเป็นคันดินจาก pass ก่อนหน้าเกิน ``SEAL_MAX_RAISE``
+        """
+        shape = (5, 5)
+        terrain = np.full(shape, 110, dtype=np.int32)
+        reference = np.full(shape, 100, dtype=np.int32)
+        water = np.zeros(shape, dtype=bool)
+        water[2, 2] = True
+        surface = np.full(shape, UNRESOLVED, dtype=np.int16)
+        surface[2, 2] = 105
+        top = np.full(shape, UNRESOLVED, dtype=np.int16)
+
+        got = H.seal_waterfall_banks(
+            terrain, water, surface, top,
+            reference_terrain=reference,
+            cap_mask=np.ones(shape, dtype=bool),
+        )
+
+        self.assertEqual(int(got[0, 0]), 100 + CS.SEAL_MAX_RAISE)
+        self.assertEqual(int(got[2, 1]), 105)
+
     def test_densify_preserves_direction_and_endpoints(self):
         x, z = H.densify_polyline([0, 4, 4], [0, 0, 3], spacing=1)
 

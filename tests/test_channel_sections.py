@@ -91,6 +91,50 @@ class SectionShapeTests(unittest.TestCase):
         dry_raise = out["terrain"][~out["water"]] - terrain[~out["water"]]
         self.assertLessEqual(int(dry_raise.max()), CS.SEAL_MAX_RAISE)
 
+    def test_bank_smoothing_removes_a_jagged_step_without_raising_cells(self):
+        """post-pass ลดขั้นฝั่งที่ถูกสร้าง โดยไม่แตะน้ำหรือสร้างคันดิน"""
+        shape = (12, 12)
+        terrain = np.full(shape, 102, dtype=np.int32)
+        terrain[5, 4] = 105
+        reference = terrain.copy()
+        water = np.zeros(shape, dtype=bool)
+        water[:, 5] = True
+        surface = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        surface[water] = 102
+        waterfall_top = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        lip = np.zeros(shape, dtype=bool)
+
+        got = CS.smooth_walkable_banks(
+            terrain, reference, water, surface, waterfall_top, lip,
+        )
+
+        self.assertEqual(int(got[5, 4]), 102)
+        self.assertTrue(np.array_equal(got[water], terrain[water]))
+        self.assertFalse((got[~water] > terrain[~water]).any())
+        dry_next_to_water = np.zeros(shape, dtype=bool)
+        dry_next_to_water[:, 4] = True
+        self.assertGreaterEqual(int(got[dry_next_to_water].min()), 102)
+
+    def test_bank_smoothing_leaves_declared_waterfall_lip_alone(self):
+        shape = (12, 12)
+        terrain = np.full(shape, 102, dtype=np.int32)
+        terrain[5, 4] = 105
+        reference = terrain.copy()
+        water = np.zeros(shape, dtype=bool)
+        water[:, 5] = True
+        surface = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        surface[water] = 102
+        waterfall_top = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        waterfall_top[5, 5] = 106
+        lip = np.zeros(shape, dtype=bool)
+        lip[5, 5] = True
+
+        got = CS.smooth_walkable_banks(
+            terrain, reference, water, surface, waterfall_top, lip,
+        )
+
+        self.assertEqual(int(got[5, 4]), 105)
+
     def test_stamping_never_digs_below_the_bed_it_declared(self):
         """ความลึกที่ประกาศคือความลึกที่ได้ ไม่มีกลไกไหนขุดต่อ"""
         terrain = np.full((24, 24), 100, dtype=np.int32)

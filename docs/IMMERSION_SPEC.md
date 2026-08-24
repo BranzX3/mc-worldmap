@@ -62,16 +62,21 @@ unit safety 10/10 แล้วแต่ยังปิดเป็น default �
 | ปากน้ำต่อเนื่อง | lake-mouth patch + world readback | ไม่มี step/ม่านที่ไม่ได้ประกาศเป็น waterfall |
 | น้ำตกอ่านเป็น feature | lip + curtain + pool + downstream reach | ต้องมีครบทั้งกลุ่ม ห้ามเป็นเสาเดี่ยว |
 
-ค่าปัจจุบันที่ยังไม่ผ่าน: `hill_junction` bank excess 21.4%, `steep_stream`
-20.1%, `cliff_bedding` 16.6%, `prototype_stream` 12.1% และ
-`player_liked` 10.7% โดยบางจุด climb 9–10 บล็อก
+ผล golden ล่าสุดหลังเพิ่ม final seal cap และ bank smoothing (`bank_final`,
+2026-08-25): `bank_unwalkable_excess` ลดเหลือ `prototype_stream` -0.5%,
+`player_liked` -0.4%, `cliff_bedding` 3.1%, `steep_stream` 3.8% และ
+`hill_junction` 5.1% (ใกล้เกณฑ์ 5% แต่ยังเกินเล็กน้อย); ไม่มี golden patch ใด
+แย่ลง และ hard invariant ทั้งหมดเป็นศูนย์. climb สูงสุด 9–10 ยังอยู่ในจุดที่
+เป็นหน้าผา/feature ของภูมิประเทศจริง จึงยังไม่ควรเปิด threshold แบบเหมารวม
 
 รอบตรวจ 2026-08-20 พบ root cause ย่อยอีกชั้น: การ seal ชายฝั่งจากหน้าตัดที่ทับกัน
 เคยสะสม `SEAL_MAX_RAISE` ต่อรอบจน synthetic ยก +6; ตอนนี้มีเพดานต่อ cell จาก DEM
 เดิมและมี regression test แล้ว แต่ golden metrics ไม่เปลี่ยน เพราะปัญหาหลักที่เหลือ
 อยู่ใน final water-edge seal/หน้าผา จึงยังไม่ลดตัวเลขด้วยการแก้ safety นี้ และยังไม่
 เปิด threshold ใหม่จนกว่าจะแยก bank ที่เป็น waterfall feature ออกจาก ordinary bank
-ด้วย artifact เดียวกัน
+ด้วย artifact เดียวกัน. รอบ 2026-08-25 เพิ่ม post-pass ที่ลดเฉพาะ dry bank
+ที่ติดน้ำและปีนเกิน 1 บล็อก โดยไม่ยก cell และเว้น waterfall lip/top; มี unit
+regression สำหรับทั้งการไม่สร้างคันดินและการไม่แตะ waterfall feature แล้ว
 
 ### 3. น้ำที่ดูมีเหตุผล — visual/ecological gate
 

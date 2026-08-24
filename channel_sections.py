@@ -53,6 +53,13 @@ MAX_BANK_BLOCKS = 10
 # ความชันตลิ่งขั้นต่ำ/สูงสุด (บล็อกต่อบล็อก) — ใช้ความชันไหล่เขาจริงเป็นหลัก
 MIN_BANK_SLOPE = 0.5
 MAX_BANK_SLOPE = 3.0
+# เดินธรรมดาใน Minecraft ขึ้นได้ 1 บล็อก — ขั้นที่มากกว่านี้ต้องทำเป็น
+# ทางลาด/ขั้นต่อเนื่อง ไม่ใช่ปล่อยให้ cell เดียวที่ถูกดัดกลายเป็นขอบหัก
+WALKABLE_BANK_STEP = 1
+# post-pass ของ bank ยอมตัด jagged step เล็ก ๆ จาก product ได้ไม่เกิน 6 บล็อก
+# ต่อ cell (เท่ากับ BANK_MAX_CUT); หน้าผาจริงที่สูงกว่านั้นต้องคงไว้เป็น
+# feature และ waterfall จะถูกเว้นด้วย mask แยกต่างหาก
+BANK_SMOOTH_MAX_CUT = 6
 # ก้นน้ำลึกสุดกี่บล็อกใต้ผิวน้ำ (ที่ 4 m/บล็อก ลึกกว่านี้มองไม่เห็นก้นแล้ว)
 MAX_BED_DEPTH = 4
 # ยกพื้นกันน้ำรั่วได้มากสุดกี่บล็อก
@@ -547,3 +554,115 @@ def stamp_sections(plans, terrain, protect=None):
         "flow_z": flow_z,
         "flow": flow,
     }
+
+
+def smooth_walkable_banks(
+    terrain, reference, water, surface, waterfall_top, waterfall_lip,
+    passes=5, quantile=25,
+):
+    """ลดขั้นกระโดดที่เกิดจากการตัดร่อง โดยไม่ไถหน้าผาจริงทิ้ง
+
+    ``stamp_sections`` สร้างหน้าตัดตาม profile ได้ถูกต้อง แต่เมื่อเส้นทางน้ำ
+    ตัดผ่าน DEM ที่มีสัน/ร่องสลับกัน cell แห้งที่อยู่บนฝั่งอาจเหลือขั้น 2–6
+    บล็อกติดกัน ทั้งที่มันไม่ใช่ waterfall feature วิธีนี้เป็น post-pass เล็ก ๆ:
+
+    * แตะเฉพาะ dry bank ที่ปีนเกิน 1 บล็อก
+    * ลดลงเข้าหา percentile ต่ำของ bank เพื่อนบ้าน cardinal เท่านั้น — ไม่ยก
+      cell ใดขึ้น จึงไม่สร้างคันดินใหม่
+    * จำกัดการตัดรวมจาก product เดิมไม่เกิน ``BANK_SMOOTH_MAX_CUT``
+    * เว้น cell รอบ `waterfall_top/lip` เพื่อไม่ทำลาย feature ที่ประกาศไว้
+
+    ขอบที่ติดน้ำยังถูก clamp ไว้ไม่ต่ำกว่าผิวน้ำ/ยอดม่าน เพื่อรักษา hard
+    invariant `dry_bank_below_water == 0`.
+    """
+    terrain = np.asarray(terrain, dtype=np.int32).copy()
+    reference = np.asarray(reference, dtype=np.int32)
+    water = np.asarray(water, dtype=bool)
+    surface = np.asarray(surface, dtype=np.int32)
+    waterfall_top = np.asarray(waterfall_top, dtype=np.int32)
+    waterfall_lip = np.asarray(waterfall_lip, dtype=bool)
+    if any(value.shape != terrain.shape for value in (
+        reference, water, surface, waterfall_top, waterfall_lip,
+    )):
+        raise ValueError("bank smoothing inputs must have the same shape")
+
+    def bank_and_climb(height):
+        bank = np.zeros(water.shape, dtype=bool)
+        climb = np.zeros(water.shape, dtype=np.int32)
+        for dst, src in (
+            (np.s_[1:, :], np.s_[:-1, :]),
+            (np.s_[:-1, :], np.s_[1:, :]),
+            (np.s_[:, 1:], np.s_[:, :-1]),
+            (np.s_[:, :-1], np.s_[:, 1:]),
+        ):
+            bank[dst] |= ~water[dst] & water[src]
+        for dst, src in (
+            (np.s_[1:, :], np.s_[:-1, :]),
+            (np.s_[:-1, :], np.s_[1:, :]),
+            (np.s_[:, 1:], np.s_[:, :-1]),
+            (np.s_[:, :-1], np.s_[:, 1:]),
+        ):
+            step = np.abs(height[dst] - height[src])
+            climb[dst] = np.maximum(
+                climb[dst], np.where(bank[dst] & bank[src], step, 0)
+            )
+        return bank, climb
+
+    feature = waterfall_lip | (waterfall_top != np.iinfo(np.int16).min)
+    # only dry cells one cardinal step from a declared feature are protected
+    near_feature = feature.copy()
+    for dst, src in (
+        (np.s_[1:, :], np.s_[:-1, :]),
+        (np.s_[:-1, :], np.s_[1:, :]),
+        (np.s_[:, 1:], np.s_[:, :-1]),
+        (np.s_[:, :-1], np.s_[:, 1:]),
+    ):
+        near_feature[dst] |= feature[src]
+    original = terrain.copy()
+    lower = original - BANK_SMOOTH_MAX_CUT
+    wet_top = np.where(
+        water,
+        np.maximum(surface, waterfall_top),
+        np.iinfo(np.int32).min,
+    )
+
+    for _ in range(max(1, int(passes))):
+        bank, climb = bank_and_climb(terrain)
+        candidate = bank & (climb > WALKABLE_BANK_STEP) & ~near_feature
+        if not candidate.any():
+            break
+        proposed = terrain.copy()
+        for z, x in zip(*np.where(candidate)):
+            neighbours = []
+            for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                zz, xx = int(z) + dz, int(x) + dx
+                if (
+                    0 <= zz < terrain.shape[0]
+                    and 0 <= xx < terrain.shape[1]
+                    and bank[zz, xx]
+                    and not water[zz, xx]
+                ):
+                    neighbours.append(int(terrain[zz, xx]))
+            if not neighbours:
+                continue
+            target = int(np.rint(np.percentile(neighbours, quantile)))
+            target = max(
+                int(lower[z, x]),
+                min(int(terrain[z, x]), target),
+            )
+            wet_neighbours = []
+            for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                zz, xx = int(z) + dz, int(x) + dx
+                if (
+                    0 <= zz < terrain.shape[0]
+                    and 0 <= xx < terrain.shape[1]
+                    and water[zz, xx]
+                ):
+                    wet_neighbours.append(int(wet_top[zz, xx]))
+            if wet_neighbours:
+                target = max(target, max(wet_neighbours))
+            proposed[z, x] = target
+        if np.array_equal(proposed, terrain):
+            break
+        terrain = proposed
+    return terrain

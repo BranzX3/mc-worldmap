@@ -318,7 +318,10 @@ def build_step_weirs(terrain, water, body, way, surface, depth, kind,
             waterfall_top, sill)
 
 
-def seal_waterfall_banks(terrain, water, surface, waterfall_top):
+def seal_waterfall_banks(
+    terrain, water, surface, waterfall_top,
+    reference_terrain=None, cap_mask=None, max_raise=CS.SEAL_MAX_RAISE,
+):
     """ยกพื้นแห้งรอบม่านน้ำให้ถึงยอดม่าน ไม่ใช่แค่ถึงผิวน้ำ
 
     การยกเพื่อนบ้านแห้งรอบสุดท้ายเดิมใช้ `surface` อย่างเดียว แต่ม่านน้ำตกอยู่
@@ -350,6 +353,35 @@ def seal_waterfall_banks(terrain, water, surface, waterfall_top):
         dry = ~water[dst] & water[src]
         view = terrain[dst]
         view[dry] = np.maximum(view[dry], wet_top[src][dry])
+
+    # การ seal รอบสุดท้ายเคยลบเพดานการยกของหน้าตัดทิ้งทั้งหมด: แม้ DEM จะ
+    # ต่ำกว่าระดับน้ำเพียงเล็กน้อย แต่ cell ที่ถูกแตะจากหลาย stage/standing
+    # pass สามารถค้างเป็นคันดินสูงกว่าพื้นเดิม 6–10 บล็อกได้ การกันน้ำรั่ว
+    # ต้องชนะเสมอที่ขอบน้ำ แต่ไกลจากขอบน้ำไม่ควรยกเกินเพดานเดียวกับ stamp
+    # ``cap_mask`` จำกัดกฎนี้ไว้เฉพาะ ordinary stream bank เพื่อไม่ไปลด
+    # morphology ของ lake bank ที่มีเพดานคนละชุด
+    if reference_terrain is not None:
+        reference = np.asarray(reference_terrain, dtype=np.int32)
+        if reference.shape != terrain.shape:
+            raise ValueError("reference_terrain shape must match terrain")
+        candidate = ~water if cap_mask is None else (
+            np.asarray(cap_mask, dtype=bool) & ~water
+        )
+        if candidate.any():
+            cap = reference + int(max_raise)
+            # ขอบที่ติดน้ำต้องไม่ถูกลดต่ำกว่าผิวน้ำ/ยอดม่าน มิฉะนั้นจะกลับไป
+            # เกิด dry_bank_below_water ซึ่งเป็น hard invariant
+            for dst, src in (
+                (np.s_[1:, :], np.s_[:-1, :]),
+                (np.s_[:-1, :], np.s_[1:, :]),
+                (np.s_[:, 1:], np.s_[:, :-1]),
+                (np.s_[:, :-1], np.s_[:, 1:]),
+            ):
+                dry = candidate[dst] & water[src]
+                if dry.any():
+                    view = cap[dst]
+                    view[dry] = np.maximum(view[dry], wet_top[src][dry])
+            terrain[candidate] = np.minimum(terrain[candidate], cap[candidate])
     return terrain
 
 
@@ -2194,8 +2226,17 @@ def shape_hydrology_patch(
     # ต้องเป็นขั้นตอน *สุดท้าย* ที่แตะ terrain — ทุกการ clip ก่อนหน้า
     # (MAX_LAKE_BANK_ADJUST / max_channel_adjust) จึงถูกลบล้างได้เมื่อมันขัดกับ
     # การกันน้ำรั่ว ซึ่งเป็นคุณสมบัติที่ห้ามต่อรอง
+    stream_bank = (
+        ndimage.binary_dilation(
+            way, structure=ndimage.generate_binary_structure(2, 1)
+        ) & ~water
+    )
     terrain = seal_waterfall_banks(
-        flowing["terrain_y"], water, surface, waterfall_top
+        flowing["terrain_y"], water, surface, waterfall_top,
+        reference_terrain=base_y, cap_mask=stream_bank,
+    )
+    terrain = CS.smooth_walkable_banks(
+        terrain, base_y, water, surface, waterfall_top, waterfall_lip,
     )
     return {
         "terrain_y": terrain.astype(np.int16),
