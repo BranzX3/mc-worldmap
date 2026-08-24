@@ -236,6 +236,22 @@ FLOWERS_ALPINE = ["oxeye_daisy", "azure_bluet", "dandelion", "cornflower"]
 FLOWERS_TALL = ["rose_bush", "peony", "lilac", "sunflower"]
 
 
+def meadow_zone(damp, slope, elev):
+    """แยกทุ่งเป็น wet meadow, pasture หรือ meadow กลางจากสภาพพื้นที่
+
+    ค่าความชื้น/ความชันมาจาก ``surface.decor_fields`` ซึ่งต่อเนื่องข้าม tile
+    จึงไม่สร้างเส้นแบ่งใหม่บนแผนที่ และไม่ใช้ landcover เพียงค่าเดียวตัดสิน
+    """
+    damp = float(damp)
+    slope = float(slope)
+    elev = float(elev)
+    if damp >= 0.72:
+        return "meadow_wet"
+    if damp <= 0.38 and slope <= 14.0 and elev < 1800.0:
+        return "pasture"
+    return "meadow"
+
+
 def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
     """เลือกพืชหนึ่งบล็อกสำหรับตำแหน่งนี้ คืน (ชื่อบล็อก, สองบล็อกไหม) หรือ None
 
@@ -245,12 +261,25 @@ def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
     damp     ความชื้น 0..1
     dense    ความทึบเรือนยอด 0..1 (0 = โล่ง)
     """
-    if zone == "wetland":
+    if zone in ("wetland", "meadow_wet"):
         if r < 0.55:
             return ("short_grass", False)
         if r < 0.62:
             return ("tall_grass", True)
         return None
+
+    if zone == "pasture":
+        # ทุ่งเลี้ยงสัตว์แห้งและถูกรบกวนบ่อย: หญ้าสั้นเป็นหลัก มีดอก/ดินโล่ง
+        # แทรก แต่ไม่ให้พุ่มหรือพืชสองบล็อกกลายเป็นป่าขนาดย่อม
+        cover = 0.48 + 0.22 * patch_c
+        if r > cover:
+            return None
+        if patch_a > 0.68 and r < cover * 0.18:
+            return (FLOWERS_LOW[int(patch_b * len(FLOWERS_LOW)) %
+                                len(FLOWERS_LOW)], False)
+        if r < cover * 0.72:
+            return ("short_grass", False)
+        return ("tall_grass", True)
 
     if zone == "shore":
         # ริมน้ำ (กรวด/ทราย) — เดิมถูกตัดออกจาก plantable ทั้งหมด ริมทะเลสาบจึง

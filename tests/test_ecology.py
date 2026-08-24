@@ -4,6 +4,7 @@ import numpy as np
 
 import ecology as E
 import surface as S
+import vegetation as V
 
 
 class StandFieldTests(unittest.TestCase):
@@ -98,6 +99,11 @@ class PreviewPaintAgreementTests(unittest.TestCase):
         lc = np.full((16, 16), S.LC["forest"], dtype=np.uint8)
         result = S.classify(elev, lc, 4.0, block_m=4.0)
         self.assertEqual(len(result), 4)
+
+    def test_meadow_zone_uses_continuous_humidity_and_slope(self):
+        self.assertEqual(V.meadow_zone(0.80, 8.0, 700.0), "meadow_wet")
+        self.assertEqual(V.meadow_zone(0.20, 8.0, 700.0), "pasture")
+        self.assertEqual(V.meadow_zone(0.20, 30.0, 700.0), "meadow")
 
     def test_minority_admixture_only_comes_from_the_per_tree_roll(self):
         """roll เปลี่ยนได้แค่ชนิดรอง ชนิดเด่นของผืนต้องมาจาก stand"""

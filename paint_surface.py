@@ -2279,7 +2279,9 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         elif e > S.TREELINE:
             zone = "alpine"
         elif name in ("grass_block", "moss_block"):
-            zone = "meadow"
+            zone = V.meadow_zone(
+                float(D["damp"][ix, iz]), float(D["slope"][ix, iz]), e,
+            )
         else:
             continue
 

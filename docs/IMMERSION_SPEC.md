@@ -101,6 +101,8 @@ patches และเทียบหลาย reach เพราะการบ�
   ที่สัมพันธ์กันยังเป็นงานค้าง)
 - forest stand ต้องมีอย่างน้อย canopy, understory, gap และ deadwood ที่สัมพันธ์กัน
 - meadow ต้องแยก dry/wet/pasture ตามความชื้น ความชัน และ disturbance
+  (`vegetation.meadow_zone` ทำ dry/wet/pasture จากความชื้น+ความชันแล้ว;
+  disturbance ยังเป็นงานค้าง)
 - สันเขาสูงต้องมี arête/rock exposure; glacier ต้องมี rock window, crevasse และ
   moraine แทน packed ice ผืนเดียว
 - สี biome, fog, snow และ vegetation ต้องเปลี่ยนตามระดับสูงโดยไม่มี band แข็ง

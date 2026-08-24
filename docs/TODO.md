@@ -69,7 +69,9 @@ paint หน้าผาตัวแทนแล้วอ่านบล็อ�
 - ดอกไม้สองบล็อก (rose_bush/peony/lilac/sunflower) เป็นหย่อมย่อยในหย่อมดอกไม้
   ต่ำกว่า 1,500 m ไม่เกิน 5% ของพื้นที่ปลูก
 
-ที่ยังขาด: meadow planner (dry / wet / pasture) — ตอนนี้ทุ่งเป็นชนิดเดียวทั้งแผนที่
+เพิ่มใน branch นี้: `vegetation.meadow_zone` แยก `meadow_wet` / `pasture` /
+`meadow` จากความชื้น ความชัน และระดับสูง และ painter ใช้กฎเดียวกัน; ยังขาดการ
+ผูก disturbance/การกินแทะกับ stand และการอ่านกลับจากโลกจริง
 
 ## 5. Ecotone
 
