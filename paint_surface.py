@@ -489,7 +489,8 @@ def neighbour_relief(values):
 
 
 def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
-                      elev_m=None, flow_index=None, pool_mask=None):
+                      elev_m=None, flow_index=None, pool_mask=None,
+                      fetch=None):
     """Classify an alpine lakebed into broad, coherent sediment patches.
 
     The palette follows the energy gradient of a real lake: wave-washed
@@ -502,6 +503,12 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
     lake_mask = np.asarray(lake_mask, dtype=bool)
     if depth.shape != bed_relief.shape or depth.shape != lake_mask.shape:
         raise ValueError("depth, bed_relief, and lake_mask must have the same shape")
+    if fetch is None:
+        fetch = WE.lake_fetch(lake_mask)
+    else:
+        fetch = np.asarray(fetch, dtype=np.int32)
+        if fetch.shape != depth.shape:
+            raise ValueError("fetch must have the same shape as depth")
 
     shape = depth.shape
     broad = S.smooth_noise(x0, z0, shape, 84.0, 7611, 3)
@@ -568,6 +575,16 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
     result[shallow & (texture >= 0.59) & (texture < 0.70)] = LAKEBED["sand"]
     result[shallow & (texture >= 0.70)] = LAKEBED["clay"]
 
+    # ฝั่งที่มี fetch เปิดยาวรับคลื่นมากกว่าอ่าว แม้ความลึกเท่ากันจึงเก็บ
+    # ตะกอนละเอียดได้น้อยลง — เปลี่ยนเฉพาะ shallow shelf ไม่ไถก้นทะเลสาบทั้งผืน
+    exposed_shore = lake_mask & (fetch >= 12) & (depth <= 6)
+    fine_exposed = exposed_shore & np.isin(
+        result,
+        np.asarray([LAKEBED["sand"], LAKEBED["clay"], LAKEBED["mud"]], dtype=np.uint8),
+    )
+    result[fine_exposed & (texture < 0.58)] = LAKEBED["gravel"]
+    result[fine_exposed & (texture >= 0.58)] = LAKEBED["cobble"]
+
     middle = wet & lake_mask & (effective_depth >= 6.0) & (effective_depth < 13.0)
     result[middle & (texture < 0.42)] = LAKEBED["gravel"]
     result[middle & (texture >= 0.42) & (texture < 0.58)] = LAKEBED["clay"]
@@ -613,7 +630,7 @@ def lakebed_materials(depth, bed_relief, lake_mask, x0=0, z0=0,
 
 
 def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0,
-                             flow_index=None):
+                             flow_index=None, fetch=None):
     """Return clustered shallow-lake vegetation masks.
 
     Vegetation is confined to the photic littoral shelf. Broad world-space
@@ -625,6 +642,10 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0,
     bed_relief = np.asarray(bed_relief, dtype=np.int32)
     if depth.shape != bed_kind.shape or depth.shape != bed_relief.shape:
         raise ValueError("depth, bed_kind, and bed_relief must have the same shape")
+    if fetch is not None:
+        fetch = np.asarray(fetch, dtype=np.int32)
+        if fetch.shape != depth.shape:
+            raise ValueError("fetch must have the same shape as depth")
 
     shape = depth.shape
     meadow = S.smooth_noise(x0, z0, shape, 52.0, 8841, 3) * 0.5 + 0.5
@@ -655,6 +676,8 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0,
         & (bed_relief <= 1)
         & suitable_bed
     )
+    if fetch is not None:
+        plantable &= fetch <= 12
     # หญ้าน้ำยึดพื้นไม่ได้ในกระแสแรง และใบบัวจะถูกพัดไปเลย — ก่อนหน้านี้กฎมี
     # แต่ความลึก ผลคือแก่งบนที่ชันมีทุ่งหญ้าทะเลอยู่ก้น
     if flow_index is not None:
@@ -680,6 +703,8 @@ def aquatic_vegetation_masks(depth, bed_kind, bed_relief, x0=0, z0=0,
         & (habitat > 0.68)
         & (lily_roll < np.where(habitat > 0.76, 0.045, 0.012))
     )
+    if fetch is not None:
+        lily &= fetch <= 8
     return short, tall, lily
 
 
@@ -1103,6 +1128,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                     "global_lake_mask and surf_y must have the same shape"
                 )
     level_adjusted = lake_full[sx, sz]
+    lake_fetch_full = WE.lake_fetch(lake_full)
+    fetch_core = lake_fetch_full[sx, sz]
     y = adjusted_full[sx, sz]
     # ริมลำน้ำใช้เกณฑ์หน้าผาสูงกว่าที่อื่น ไม่งั้นตลิ่งที่เกิดจากการขุดร่องจะถูก
     # ทาเป็นชั้นหินลายทางทั้งสาย (ดู STREAM_CLIFF_MIN_DROP)
@@ -1209,7 +1236,7 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     )
     bed_kind = lakebed_materials(
         depth, bed_relief, level_adjusted, x0=x0, z0=z0, elev_m=elev_core,
-        flow_index=flow_core, pool_mask=waterfall_pool,
+        flow_index=flow_core, pool_mask=waterfall_pool, fetch=fetch_core,
     )
     material_ids = np.asarray([
         P.bed_clay,       # stream is replaced from bed_stream below
@@ -1295,6 +1322,7 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "depth": depth,
         "bed_y": bed_y,
         "bed_relief": bed_relief,
+        "lake_fetch": fetch_core,
         "bed_kind": bed_kind,
         "bed_id": bed_id,
         # แถบพุ่มเตี้ยจาก OSM — 4.1% ของแผนที่ที่เดิมไม่มีโค้ดไหนอ้างถึงเลย
@@ -2192,6 +2220,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     seagrass, tall_seagrass, lily = aquatic_vegetation_masks(
         dense["depth"], dense["bed_kind"], dense["bed_relief"],
         x0=x0, z0=z0, flow_index=dense["flow"],
+        fetch=dense["lake_fetch"],
     )
     seagrass &= dense["water"]
     tall_seagrass &= dense["water"]

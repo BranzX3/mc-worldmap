@@ -21,6 +21,27 @@ class FlowClassTests(unittest.TestCase):
         )
 
 
+class LakeFetchTests(unittest.TestCase):
+    def test_fetch_counts_open_water_along_each_cardinal_axis(self):
+        lake = np.zeros((7, 9), dtype=bool)
+        lake[2:5, 1:8] = True
+        fetch = WE.lake_fetch(lake)
+
+        self.assertEqual(int(fetch[3, 1]), 7)
+        self.assertEqual(int(fetch[3, 4]), 7)
+        self.assertEqual(int(fetch[2, 1]), 7)
+        self.assertEqual(int(fetch[0, 0]), 0)
+
+    def test_fetch_does_not_cross_a_land_break(self):
+        lake = np.zeros((3, 9), dtype=bool)
+        lake[1, :3] = True
+        lake[1, 5:] = True
+        fetch = WE.lake_fetch(lake)
+
+        self.assertEqual(int(fetch[1, 1]), 3)
+        self.assertEqual(int(fetch[1, 6]), 4)
+
+
 class StreambedTests(unittest.TestCase):
     """ตะกอนที่ละเอียดกว่าที่แรงน้ำจะพัดไปได้เท่านั้นที่อยู่ได้"""
 

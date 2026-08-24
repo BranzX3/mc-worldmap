@@ -51,6 +51,20 @@ def forest_ecotone_mask(landcover, water=None, width=2):
     return ring & ~blocked
 
 
+def glacier_rock_window_mask(landcover, slope, curvature, roll,
+                             slope_min=38.0, curvature_min=0.28):
+    """เลือกช่องหินบน glacier ที่ชัน/นูน ไม่ใช่เปลี่ยนน้ำแข็งทั้งผืนเป็นหิน"""
+    landcover = np.asarray(landcover)
+    slope = np.asarray(slope, dtype=np.float32)
+    curvature = np.asarray(curvature, dtype=np.float32)
+    roll = np.asarray(roll, dtype=np.float32)
+    if not (landcover.shape == slope.shape == curvature.shape == roll.shape):
+        raise ValueError("glacier exposure inputs ต้องรูปร่างเดียวกัน")
+    glacier = landcover == LC["glacier"]
+    exposed = (slope >= float(slope_min)) | (curvature >= float(curvature_min))
+    return glacier & exposed & (roll < 0.24)
+
+
 def apply_water_mask(landcover, water_mask):
     """Return landcover adjusted to the derived, naturalized water outline.
 
@@ -710,7 +724,19 @@ def classify(elev_m, landcover, spacing_m, seed=1234, block_m=4.0, x0=0, z0=0,
     ) * (0.65 + 0.35 * settling)
     snow_amt = np.maximum(patchy_snow, permanent_snow)
 
-    surf[landcover == LC["glacier"]] = IDX["ice"]
+    glacier = landcover == LC["glacier"]
+    surf[glacier] = IDX["ice"]
+    # ธารน้ำแข็งบนสันชัน/สันนูนมีหน้าต่างหินและ moraine โผล่เป็นช่วง ๆ ไม่ใช่
+    # packed ice เรียบทั้ง polygon; roll แบบ world-space ทำให้ผลต่อเนื่องข้าม tile
+    glacier_roll = np.clip(
+        0.42 * white_noise(x0 / step, z0 / step, shape, seed + 6201)
+        + 0.58 * (nz(13, seed + 6202, 2) * 0.5 + 0.5),
+        0.0, 0.999,
+    )
+    glacier_window = glacier_rock_window_mask(
+        landcover, slope_eff, curv, glacier_roll,
+    )
+    surf[glacier_window] = pick(r, PALETTE["rock_high"])[glacier_window]
     surf[landcover == LC["water"]] = IDX["water"]
     snow_lv = snow_units_from_amount(
         snow_amt,

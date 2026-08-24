@@ -67,6 +67,20 @@ class ScrubGroundTests(unittest.TestCase):
         self.assertFalse(mask[:, 30:34].any())
         self.assertFalse(mask[:, :27].any())
 
+    def test_glacier_windows_only_appear_on_exposed_terrain(self):
+        shape = (8, 8)
+        glacier = np.full(shape, S.LC["glacier"], dtype=np.uint8)
+        slope = np.full(shape, 20.0, dtype=np.float32)
+        curvature = np.zeros(shape, dtype=np.float32)
+        roll = np.zeros(shape, dtype=np.float32)
+        self.assertFalse(
+            S.glacier_rock_window_mask(glacier, slope, curvature, roll).any()
+        )
+        slope[:, 4:] = 45.0
+        mask = S.glacier_rock_window_mask(glacier, slope, curvature, roll)
+        self.assertTrue(mask[:, 4:].all())
+        self.assertFalse(mask[:, :4].any())
+
 
 class ScrubVegetationTests(unittest.TestCase):
     def test_scrub_grows_bushes_that_meadow_does_not(self):

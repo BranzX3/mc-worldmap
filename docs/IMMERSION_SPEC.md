@@ -89,6 +89,7 @@ regression สำหรับทั้งการไม่สร้างคั
 - การเปลี่ยน stream -> lake ต้องค่อยเปลี่ยนตามแรงน้ำ ความลึก และ exposure
 - พืชน้ำต้องอยู่ในกระแสที่ยึดเกาะได้ และต้องไม่แทนพื้นที่น้ำจนปิดทางอ่านผิวน้ำ
 - ทะเลสาบต้องมี wind exposure/fetch เพื่อแยกฝั่งรับคลื่นกับอ่าวสงบ
+  (`water_ecology.lake_fetch` คุมตะกอนและพืชน้ำแล้ว; ต้องยืนยันด้วย paint/readback)
 
 ยังไม่ตั้งเปอร์เซ็นต์ diversity เป็น hard gate จนกว่าจะวัด connected material
 patches และเทียบหลาย reach เพราะการบังคับ entropy โดยไม่มี spatial context จะสร้าง
@@ -104,7 +105,8 @@ patches และเทียบหลาย reach เพราะการบ�
   (`vegetation.meadow_zone` ทำ dry/wet/pasture จากความชื้น+ความชันแล้ว;
   disturbance ยังเป็นงานค้าง)
 - สันเขาสูงต้องมี arête/rock exposure; glacier ต้องมี rock window, crevasse และ
-  moraine แทน packed ice ผืนเดียว
+  moraine แทน packed ice ผืนเดียว (`glacier_rock_window_mask` ทำ rock window แล้ว;
+  crevasse/moraine ยังเป็นงานค้าง)
 - สี biome, fog, snow และ vegetation ต้องเปลี่ยนตามระดับสูงโดยไม่มี band แข็ง
 
 ### 5. Exploration density

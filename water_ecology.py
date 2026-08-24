@@ -25,6 +25,52 @@ BRISK_MAX = 60
 FLOW_NAMES = ("still", "slack", "brisk", "fast")
 STILL, SLACK, BRISK, FAST = range(4)
 
+
+def lake_fetch(lake_mask):
+    """คืนระยะน้ำต่อเนื่องยาวสุดตามแกน cardinal จากแต่ละ cell
+
+    นี่เป็น fetch แบบ conservative สำหรับแผนที่กริด: ชายฝั่งที่หันออกสู่ผืน
+    น้ำยาวจะได้ค่าสูง ส่วนอ่าว/ช่องแคบจะได้ค่าต่ำ ใช้แกนหลักสี่ทิศเพื่อให้ผล
+    คงที่เมื่อ paint แบบ tile และไม่สร้างลายสุ่มแทนกระบวนการคลื่น
+    """
+    lake = np.asarray(lake_mask, dtype=bool)
+    # World dimensions are far below int16 range; keeping this field compact is
+    # important when a full paint pass requests a 10k x 10k lake mask.
+    fetch = np.zeros(lake.shape, dtype=np.int16)
+
+    def scan(axis, reverse=False):
+        out = np.zeros(lake.shape, dtype=np.int16)
+        indices = (
+            range(lake.shape[axis] - 1, -1, -1)
+            if reverse else range(lake.shape[axis])
+        )
+        for i in indices:
+            current = np.take(lake, i, axis=axis)
+            if reverse:
+                previous = (
+                    np.take(out, i + 1, axis=axis)
+                    if i + 1 < lake.shape[axis] else 0
+                )
+            else:
+                previous = (
+                    np.take(out, i - 1, axis=axis) if i > 0 else 0
+                )
+            value = np.where(current, previous + 1, 0)
+            if axis == 0:
+                out[i, :] = value
+            else:
+                out[:, i] = value
+        return out
+
+    for axis in (0, 1):
+        forward = scan(axis)
+        backward = scan(axis, reverse=True)
+        contiguous = np.where(
+            lake, forward + backward - 1, 0
+        )
+        fetch = np.maximum(fetch, contiguous)
+    return fetch
+
 # ---- วัสดุก้นน้ำ ----
 # ชุดเดียวกับที่ `paint_surface` ใช้ทั้งทะเลสาบและลำน้ำ ย้ายมาไว้ที่นี่เพราะ
 # ตอนนี้มีผู้ตัดสินสองที่ (ทะเลสาบตัดสินจากความลึก ลำน้ำตัดสินจากแรงน้ำ) และ

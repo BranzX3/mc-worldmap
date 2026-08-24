@@ -12,7 +12,7 @@
 | lake bank terrain | **patch ผ่านโครงสร้าง:** dry bank ต่ำกว่าน้ำ 0/208; ยังไม่รัน global |
 | bathymetry | **รัน global แล้ว** — `bed_flat_share` ไล่จนจบแล้วและสรุปว่าใช้เป็นด่านไม่ได้ (ดู WATER_REDESIGN) ตัวที่ยังวัดได้จริงคือ `bed_flat_lake` |
 | waterfall | **patch ใหม่:** สร้างจาก directed profile เฉพาะ drop 3–4 พร้อม lip/curtain/pool |
-| shoreline ecology / พืชน้ำ | **มีแล้วบางส่วน:** `flow_index` + `water_ecology.py` ตัดสินวัสดุก้นน้ำ/หญ้าน้ำ/ใบบัว/กกจากความชันลำน้ำ ยืนยันด้วยบล็อกจริงแล้ว — ที่ยังขาดคือ exposure ของทะเลสาบ (fetch ลม) |
+| shoreline ecology / พืชน้ำ | **เพิ่มแล้ว:** `flow_index` + `water_ecology.lake_fetch` ตัดสินวัสดุก้นน้ำ/หญ้าน้ำ/ใบบัว/กกจากแรงน้ำและ fetch; ยังต้องอ่านกลับโลกจริงรอบสุดท้าย |
 | ~~ลำธารเป็นปล่องหิน~~ | **แก้แล้ว:** น้ำที่อยู่ในหุบ 93% -> 21% (hill_junction), ขุดลึกสุด 123 -> 33 ดู `WATER_REDESIGN.md` |
 | ตลิ่งยังเป็นขั้นเกินธรรมชาติ | **เกือบผ่าน:** branch `codex/immersion-bank-morphology` เพิ่ม final seal cap + `smooth_walkable_banks`; golden `bank_final` ลด excess เป็น prototype -0.5%, player -0.4%, cliff 3.1%, steep 3.8%, hill 5.1% (เกณฑ์ 5% ยังเกิน 0.1 จุด). hard invariant 0 ทุก patch และ compare ไม่มี metric แย่ลง. เหลืองานแยก feature/ordinary bank ใน hill และ paint/readback รอบสุดท้าย |
 | ร่องน้ำลึกเกินเพดาน | **แก้ใน golden patch ปัจจุบันแล้ว:** wild_canyon p90 27/26 -> 3/2 และ excess 0%; lake_mouth ยังเหลือ p90 13 / excess 13.3% ต้องสร้าง global ใหม่ก่อนอ้างว่าทั้งแผนที่ผ่าน |
@@ -91,8 +91,9 @@ landcover ก่อนดู forest_p
 - **หน้าผาแบบ wall ลดแล้ว** — ลด bedding snap จาก strength 1.0 เป็น 0.25 หลังพบ
   ขั้นซ้ำ 11–12 บล็อกที่ `(5880, 5554)` และ paint วัสดุเป็นแนวชั้นบนด้านข้าง
   ที่เปิดออกจริงแล้ว ยังต้องตรวจภาพในเกมก่อนล็อกค่า
-- **`ice` 37.3% ในโซนสูง** — มาจาก `landcover == glacier` ของ OSM ตรง ๆ ซึ่งอาจ
-  เป็นข้อมูลเก่า และเป็น `packed_ice` ล้วน ไม่มีหินโผล่ รอยแตก หรือ moraine
+- **`ice` 37.3% ในโซนสูง** — ปรับแล้ว: `surface.glacier_rock_window_mask` เปิด
+  หน้าต่างหินบน glacier ที่ชัน/นูนแบบ deterministic; crevasse/moraine เชิง
+  geometry และ world readback ยังต้องตรวจ
 - `granite_slab` (149,103,85 / regularity 0.26) เป็น slab น้ำตาลตัวเดียวที่ลาย
   ธรรมชาติ — ใช้ได้ถ้าอยากได้ครึ่งขั้นบนที่ลาดชันที่ดินบาง
 
