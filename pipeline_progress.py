@@ -29,8 +29,15 @@ def use_utf8_stdout():
 def world_session_locked(world_path):
     """Return True when Minecraft or another editor holds session.lock."""
     lock_path = os.path.join(world_path, "session.lock")
-    if not os.path.exists(lock_path):
+    # ``os.path.exists`` converts PermissionError into False on modern
+    # Python.  That is unsafe here: a sandbox/ACL that hides the lock must be
+    # treated as locked, otherwise the build may open a live world blindly.
+    try:
+        os.stat(lock_path)
+    except FileNotFoundError:
         return False
+    except OSError:
+        return True
 
     fd = None
     acquired = False

@@ -25,6 +25,7 @@ from PIL import Image
 import config as C
 from paint_world import repair_entities
 from pipeline_progress import (
+    content_fingerprint,
     load_progress,
     load_progress_metadata,
     save_progress,
@@ -93,8 +94,27 @@ def patch_chunk_bounds(center_x, center_z, size, grid_blocks):
 
 
 def shelters_enabled(argv):
-    """Experimental shelters stay opt-in until every safety gate passes."""
-    return "--shelters" in argv
+    """Keep surface shelters opt-in until a world readback accepts them."""
+    return "--shelters" in argv and "--no-shelters" not in argv
+
+
+def build_fingerprint(hydrology_root=None, hydrology_patch=None, shelters=False):
+    """Fingerprint every input that affects generated terrain or shelters."""
+    paths = [
+        os.path.join(HERE, name)
+        for name in ("build_terrain.py", "rock_shelters.py", "config.py")
+    ]
+    terrain_root = os.path.abspath(hydrology_root) if hydrology_root else HERE
+    paths.append(os.path.join(terrain_root, "terrain_y.npy"))
+    if hydrology_patch:
+        paths.append(os.path.abspath(hydrology_patch))
+    missing = [path for path in paths if not os.path.isfile(path)]
+    if missing:
+        raise FileNotFoundError(
+            "build fingerprint input missing: " + ", ".join(missing)
+        )
+    version = "2026-09-09-shelters-opt-in-" + ("on" if shelters else "off")
+    return content_fingerprint(paths, version=version)
 
 
 def main():
@@ -104,8 +124,8 @@ def main():
             "menu before running build_terrain.py"
         )
 
-    # โพรงผิวยังมี safety invariant ที่ไม่ผ่าน ห้ามปนเข้า build ปกติจนกว่าจะ
-    # พิสูจน์เรื่องทางเปิดและระดับพื้นครบ เปิดทดลองโดยตั้งใจด้วย --shelters
+    # geometry safety ผ่านแล้ว แต่ยังไม่มี world readback จึงต้องเปิดโดยตั้งใจ
+    # ด้วย --shelters; --no-shelters ใช้บังคับปิดเพื่อ debug/เปรียบเทียบ
     shelters = shelters_enabled(sys.argv)
     hydro_patch = None
     hydro_root = None
@@ -131,6 +151,9 @@ def main():
 
     if hydro_patch is not None and hydro_root is not None:
         raise SystemExit("use only one hydrology input")
+    hydro_patch_path = None
+    if "--hydrology-patch" in sys.argv:
+        hydro_patch_path = sys.argv[sys.argv.index("--hydrology-patch") + 1]
     water_only = "--water-only" in sys.argv
     if water_only and hydro_root is None:
         raise SystemExit("--water-only requires --hydrology-root")
@@ -193,9 +216,15 @@ def main():
 
     done_file = os.path.join(HERE, "build_progress.txt")
     meta_file = os.path.join(HERE, "build_progress.meta.json")
+    signature = build_fingerprint(
+        hydro_root,
+        hydro_patch_path,
+        shelters=shelters,
+    )
     done = set()
     if "--resume" in sys.argv and os.path.exists(done_file):
-        recorded = (load_progress_metadata(meta_file) or {}).get("region_chunks")
+        metadata = load_progress_metadata(meta_file) or {}
+        recorded = metadata.get("region_chunks")
         if recorded != RSIZE:
             raise SystemExit(
                 "--resume refused: build_progress.txt ถูกเขียนด้วย region ขนาด "
@@ -207,13 +236,24 @@ def main():
                 "แล้ว build ใหม่ทั้งหมด "
                 f"หรือตั้ง RSIZE กลับเป็น {recorded} เพื่อใช้ checkpoint เดิมต่อ"
             )
+        if metadata.get("signature") != signature:
+            raise SystemExit(
+                "--resume refused: build code, terrain input, hydrology input, "
+                "or shelter mode changed since the checkpoint"
+            )
         done = load_progress(done_file)
         print(f"resume: ข้าม {len(done)} region ที่ทำไปแล้ว")
     elif os.path.exists(done_file) and "--patch" not in sys.argv:
         os.remove(done_file)
     if "--patch" not in sys.argv:
         save_progress_metadata(
-            meta_file, {"schema": 1, "region_chunks": RSIZE}
+            meta_file,
+            {
+                "schema": 1,
+                "region_chunks": RSIZE,
+                "signature": signature,
+                "shelters": shelters,
+            },
         )
 
     written = 0

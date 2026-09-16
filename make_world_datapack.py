@@ -18,6 +18,7 @@ amulet อ่าน min_y/height จาก datapack นี้เพื่อก�
 
 import json
 import os
+import stat
 import sys
 
 import config as C
@@ -34,7 +35,10 @@ def find_client_jar():
     ฟิลด์อย่าง ultrawarm/natural/bed_works ย้ายไปอยู่ใน attributes หมดแล้ว)
     """
     override = getattr(C, "CLIENT_JAR", None)
-    if override and os.path.isfile(override):
+    if override:
+        # Never silently substitute another version for an explicit choice.
+        if not stat.S_ISREG(os.stat(override).st_mode):
+            raise ValueError(f"CLIENT_JAR is not a file: {override}")
         return override
     roots = [
         os.path.join(
@@ -43,14 +47,29 @@ def find_client_jar():
         os.path.join(os.environ.get("APPDATA", ""), ".minecraft", "versions"),
     ]
     found = []
+    inaccessible = []
     for root in roots:
-        if not os.path.isdir(root):
+        try:
+            names = os.listdir(root)
+        except FileNotFoundError:
             continue
-        for name in os.listdir(root):
+        except PermissionError as exc:
+            inaccessible.append(str(exc))
+            continue
+        for name in names:
             jar = os.path.join(root, name, f"{name}.jar")
-            if os.path.isfile(jar) and os.path.getsize(jar) > 5_000_000:
+            try:
+                info = os.stat(jar)
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except PermissionError as exc:
+                inaccessible.append(str(exc))
+                continue
+            if stat.S_ISREG(info.st_mode) and info.st_size > 5_000_000:
                 found.append(jar)
     if not found:
+        if inaccessible:
+            raise PermissionError("Cannot inspect client jars: " + "; ".join(inaccessible))
         raise SystemExit(
             "หา jar ของเกมไม่เจอ — ตั้ง CLIENT_JAR ใน config.py ให้ชี้ไฟล์ .jar "
             "ของเวอร์ชันที่ใช้ (ต้องใช้อ่าน schema จริงของ dimension_type)"

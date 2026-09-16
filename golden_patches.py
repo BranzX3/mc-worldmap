@@ -869,6 +869,8 @@ def choose_camera(patch, spec):
     "สูงที่สุด" ใช้ไม่ได้ — ครั้งแรกที่ลองได้กล้องไปยืนบนสันเขาแล้วเห็นแต่ท้องฟ้า
     เล็งที่ ~12 บล็อกเหนือผิวน้ำ และคำนวณ pitch ให้ก้มลงหาน้ำจริง ๆ
     """
+    import render_view as V
+
     water = np.asarray(patch["water_mask"], dtype=bool)
     terrain = np.asarray(patch["terrain_y"], dtype=np.int32)
     surface = np.asarray(patch["surface_y"], dtype=np.int32)
@@ -931,7 +933,18 @@ def choose_camera(patch, spec):
             if water[iz, ix]:
                 continue
             above = float(terrain[iz, ix]) - target_y
-            score = -abs(above - 12.0)          # อยากได้สูงกว่าน้ำราว 12 บล็อก
+            site = V.camera_site_diagnostics(
+                terrain.T, cx, cz, (x0, z0), radius=12
+            )
+            # อยากได้สูงกว่าน้ำราว 12 บล็อก แต่ห้ามแลกกับการยืนชิดผาที่บัง
+            # ครึ่งภาพ จุด prototype เดิมมี local relief 47 / rise 26 บล็อก
+            # แม้ line-of-sight กลางภาพยังแตะเป้าได้ จึงต้องคิด near field แยก
+            # จาก sees_target() ด้วย
+            site_penalty = (
+                max(0, site["rise"] - 6) * 1.5
+                + max(0, site["relief"] - 14) * 0.35
+            )
+            score = -abs(above - 12.0) - site_penalty
             if fallback is None or score > fallback[0]:
                 fallback = (score, cx, cz, above, reach)
             if not sees_target(cx, cz, float(terrain[iz, ix]) + 6.0):

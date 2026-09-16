@@ -1,0 +1,539 @@
+{
+  "candidate": "water_v2_w2_20260914_f",
+  "created_utc": "2026-09-14T10:49:56.629541+00:00",
+  "status": "awaiting_world_integration",
+  "engine": "water-v2",
+  "schema_version": 3,
+  "python": "3.11.9 (tags/v3.11.9:de54cf5, Apr  2 2024, 10:12:12) [MSC v.1938 64 bit (AMD64)]",
+  "executable": "F:\\GitHub\\mc-worldmap\\.venv311\\Scripts\\python.exe",
+  "git_head": "784f4f9e90d7ba5c382b56e6af51a282dcd140cb",
+  "packages": {
+    "numpy": "1.26.4",
+    "scipy": "1.17.1",
+    "amulet-core": "1.9.42",
+    "matplotlib": "3.11.1"
+  },
+  "suite": {
+    "command": ".\\run.ps1 -m unittest discover -s tests",
+    "tests": 502,
+    "seconds": 17.836,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "exit_code": 0,
+    "log": "F:\\GitHub\\mc-worldmap\\logs\\water-v2-w2-tests-20260914-f.log"
+  },
+  "scenarios_command": ".\\run.ps1 -m water_v2 scenarios --output-dir water_runs\\water_v2_w2_20260914_f",
+  "compiler_exit_code": 0,
+  "compile_gate_passed": true,
+  "independent_geometry_checks": {
+    "lake_mouth": {
+      "missing_raw_waterbody_columns": 0,
+      "dry_terrain_modified": 0,
+      "max_river_excavation": 4,
+      "river_depth_min": 1,
+      "river_depth_max": 3
+    },
+    "hill_junction": {
+      "missing_raw_waterbody_columns": 0,
+      "dry_terrain_modified": 0,
+      "max_river_excavation": 4,
+      "river_depth_min": 1,
+      "river_depth_max": 1
+    },
+    "steep_stream": {
+      "missing_raw_waterbody_columns": 0,
+      "dry_terrain_modified": 0,
+      "max_river_excavation": 4,
+      "river_depth_min": 1,
+      "river_depth_max": 3
+    },
+    "player_liked": {
+      "missing_raw_waterbody_columns": 0,
+      "dry_terrain_modified": 0,
+      "max_river_excavation": 4,
+      "river_depth_min": 1,
+      "river_depth_max": 3
+    }
+  },
+  "world_written": false,
+  "world_readback": "not_run",
+  "post_tick_acceptance": "pending",
+  "visual_acceptance": "pending",
+  "domain": "bounded_scene",
+  "source_snapshot": "F:\\GitHub\\mc-worldmap\\water_runs\\water_v2_w2_20260914_f\\source_snapshot",
+  "code_sha256": {
+    ".gitignore": "1a9b69cbe0368fa0563a796ce9f0691c0b51c81742df946c2b202f9e95b3a2f5",
+    "atomic_writes.py": "2b67d9b4277e0739b02d7c13fb9b0a08b00c29e364a70478c21d1a708572407e",
+    "audit_global.py": "a41fad4766831577def3b7c0dc46025a50da74620405ebd845cd3eeecd8612ee",
+    "baseline_snapshot.py": "ab3b17e7e18457367c918af39bf3becdfe75a0fdf23dbe2dab524c2b96050988",
+    "biomes.py": "13e45099f4ee71ed48de02dd7bcb0fa4b25a8196d49a00a4b3ae234a2d8257ca",
+    "block_colors.py": "e51a7ac1e803c3049fc6c4c9bb91049748f9b70f916e750364fa779e4f42d410",
+    "build_terrain.py": "d7404c9fc41b58a68ad6f839b9394ebfbecc48580ae45b8ada867e41b9c0f0c8",
+    "channel_sections.py": "e3d6141cdf8cb105567e59f084dd5f167fed5ee6322947941e98eb2a60eb7c7b",
+    "check_bed_materials.py": "c6345bc0dfd924573598238dddd8467d667670776c363ebd795dd931c7e9dd07",
+    "check_world.py": "e9bb3d641cc78982b7c5829ed34a681d81da105eda1f0e6d17aea99833f0e502",
+    "check_world_water.py": "65f0e4df049dea04f3d29e0ea5736d6a356da438661f3f31ea95d4a23d059529",
+    "config.py": "5be46a017e3f6bf3a0ea7ae6c23222d845e1350dfc53ad8542cb10717b17cf5c",
+    "ecology.py": "4d484c3432d092aaf7340eb68938d11c1e92bce619f528f519a6bb98f155eda0",
+    "fetch_landcover.py": "5f1fa686efccf81139f16d697df4fddd5f301acbd3f4e2261e12248af22a70b0",
+    "fetch_map.py": "9d3eb99098de4fec8878391b3ce1c70c279280ac382b67b63532a5bd93732fe4",
+    "golden_patches.py": "196b9342b89ccab3b39264cdea7e119495307809c4a21226a2ed15819acbb1b1",
+    "hydrology_patch_io.py": "d716185f44859c7bb0a4a7a845a154d37c14e31d72ce59b7742d81ef21a63959",
+    "hydrology_shape.py": "5240258793fb50feccddb32d275cd34254beb397589b20bfc35663fdb7c394d2",
+    "inspect_entities.py": "8f9c3a2b2b5d4400f182692673e949e08efd157a65d4c0767225a0dce9c15621",
+    "inspect_region.py": "c2e8bbc7bebdcfe52daa7f9bae99d865f8587b5ff3816167630e8bf3f17ac015",
+    "inspect_water.py": "f29c5e3cdcaac52f21b7d0b45d5e4ffc0c4c1aab3a5cff8c7d7ebd85b12ad4d6",
+    "make_heightmap.py": "0dd2b4ef8ea681e45fe9435027f52a21172dbe5daad6c749ed9504956a7a3888",
+    "make_water.py": "19ee650b940644aa1faedd1c583b2af332d43456fc6ed9b6cb36315a72286aae",
+    "make_water_levels.py": "0b96f7b37f46cb81e60f1559ece44a967a6e3b51134fe637490e3ce1cc181268",
+    "make_world_datapack.py": "ef1ec566c6c4ea832213a74dc51b5d2155cf07c79828238174d7d2b5ce345f53",
+    "micro_relief.py": "5d06544cf1caa1f697cb504a6a3080147782f8e32dede3eac8d64f212d37c5c3",
+    "paint_surface.py": "e462dce56acb8025ee8ed82363e3d892ef271eb446f8a44afd2f1c31aa6523af",
+    "paint_trial.py": "7b24ffb1e45efe3c2c682e1d8e0d56f24737cef48023298c95c703c11828fbd8",
+    "paint_world.py": "fc47c579c4fe8c20b50fe5636a9bf29d6562b763a4bf0be04b8b594678c90e8c",
+    "pipeline_progress.py": "f9a89d42989efddc06c2606afbbb631c6b6336416efb55fc800241f9ca10ddd9",
+    "preflight_environment.py": "0cb909f75e304f21d55e8b4c8ca732b7f37edeb7df2ad61e756b31625a32fb41",
+    "render_lakebed_preview.py": "8ad53a6eda844c000debe6195031f3d9fff1f5c706ccffdf0ef5185a3e94274f",
+    "render_preview.py": "85270353f4439d43f443c070b9d1ddcb13b91847ff64b54d6dd3b5d5d8303516",
+    "render_view.py": "bb4582884a2ea4f31d5f06dede3f7bcf37fb71014d2a8a7fe24e8de1644ff4d5",
+    "report_metrics.py": "3fe1df4e949626ef848bf1f1dc52a443b952d052cbb40f4baf556e8cb8c75170",
+    "requirements-runtime.txt": "1b9005a2b7a1716a59a966429fce4c761e47226be2feed9e1940557b5a242b52",
+    "requirements.txt": "cde42c9710746bb273ba82cef8c81ad7e41451c4a45d9e217b8542548d2045a4",
+    "rock_shelters.py": "80b41a21198674374a9a48b145dc25abf08683f32e22d050157e4f3a1c5d6fce",
+    "run.ps1": "d800d122ee8246e9f321c8f585cf29ec0e76ef2adbdeea6737658e936f4e4189",
+    "scan_entities.py": "2383b635b9b4edef0c725a4a1f665cf45fa933e71b6a5410ee2156ef06216f57",
+    "split_heightmap.py": "ee3e128e09117148db3da17679fbafabb2c74536d1e5ad70cf5c90bd00b79533",
+    "surface.py": "e6b5435eace1551a4537f578b5c8145349678fa63329cf0f9a5e81ee27207698",
+    "terrain_shape.py": "dd2dd821b78490686ff6e7b79081d8d6edd46cf0846e1ec9fa5b468aae651438",
+    "tests/test_atomic_writes.py": "023e7686284105cf424e4427008031233b824e23f0ff216fb566cff915be4e7c",
+    "tests/test_baseline_snapshot.py": "18c00140df03d73256d916f76b97b06fe8a1075cfe98e6efb612213d92ac7c33",
+    "tests/test_biomes.py": "dda3a3120f8c988fd460de1a92d402d46f737783060acfa6f2767af63cbde6a1",
+    "tests/test_build_terrain.py": "dc0bafcc9356f7c60ae33c7f8b48885347a2c9756eab25c801c21fda7df77663",
+    "tests/test_channel_sections.py": "ede0e46d624edd3c368391ed309957ff8bb11285684df381b9e812c952559799",
+    "tests/test_check_bed_materials.py": "1616ec3239f1f7390c8ffeeeff1963ad3fd95dcc03e7be60b764ff4ee992282e",
+    "tests/test_check_world_water.py": "de965cfdf049e6eda750b9501ca914bf4fb98996427d2febf07da04706005086",
+    "tests/test_client_jar_discovery.py": "b98c1b880293c09301dbf24d75265d1a26c8e78c8cea465278db1f2acd87a051",
+    "tests/test_ecology.py": "c1c68999e0962d6002d3e18149c9a41c4c518be45b6d30bb406eaddda98ee7f5",
+    "tests/test_fetch_landcover.py": "b7808df36a1a0dfb6250c0301b584f5242e8be34bbf6aeec5469a99e867af195",
+    "tests/test_golden_patches.py": "53d2d3a1c48f91e9f98651178262e2889b30abc918c2ec7cddfe66731a1554ad",
+    "tests/test_hillside_batches.py": "d22cbb02ddb8b424f64213327c0df857155eeeb041a5f6ba27533828f4076258",
+    "tests/test_hydrology_patch_io.py": "1d44d10c3671317dd9d79be57b52ce66934e648b97236e6bf854aed72f356c8a",
+    "tests/test_hydrology_shape.py": "1896529e896db371f10ee16b8ca14e721724127eb5980b31efed2eaa1aed486a",
+    "tests/test_make_water.py": "ee52f48441b674df87871d2b3c1a0b4b8dcaf6230db9bb786e974fb527223bba",
+    "tests/test_make_water_levels.py": "004712013dc8800fd51af229f122242db97b4fa6c15538db198c1578ecb8a638",
+    "tests/test_meadow_and_shore.py": "c37315eb201c34cd2bdf27562b1cb83166a7fe1fdc8697960206489913fe5950",
+    "tests/test_micro_relief.py": "66278da81b0ffee633bcd270428eef0edcdd036ead093f9179f1ea19c17d0761",
+    "tests/test_modules_import.py": "11ec50290a3d548f55f9ca541d8acdb90cdef7637bb11fa2078104164db79630",
+    "tests/test_paint_surface.py": "93cc21fc4ebca7425670ecef451f7ae98e99280a4e7c73414af142bce10fedca",
+    "tests/test_paint_trial.py": "18f83cdba94c353fbb757f530590c1e565de974f003947f6df987ae24f4c17c2",
+    "tests/test_palette_weights.py": "c134f26beff566172aa70770457daec89960626f11465904120a28ec20507195",
+    "tests/test_pipeline_progress.py": "da1d8138f83686cb3276501d5492e7e74e61b7eb7f8dc24b09e117b6f72a4eb7",
+    "tests/test_preflight_environment.py": "df0612294ca03cd3fed2b9c607e88a643f8e4ffac8f7523adf520402b65a4091",
+    "tests/test_profile_direction.py": "43b0a74cd4dd53137f8446f286f586fe45d8c6251089603024fefbb672ff8f34",
+    "tests/test_render_view.py": "77a1dcdd2a69635a06728630f054eff488ead5fc9df235b1dd12f5133e182275",
+    "tests/test_report_metrics.py": "00bcb992d371272e78a0e8e5bfb6af52356c61fce5116e3be8d88aaecca54d67",
+    "tests/test_rock_shelters.py": "489e6304978c582f8a0be6869d3b1d14464253eccca58a2f22a4ff3de079167c",
+    "tests/test_scrub_layer.py": "fbdc7fbfb8e4bf6c51e42fdb000112f7858736341bbb4a3bc4f0966033d061fd",
+    "tests/test_slabs.py": "92e5db8f6ac0e5c39697886e003e2e872e7a9b914bdc958a81eafdcdf8509ace",
+    "tests/test_standing_context.py": "016476d3e092880992908f7a166b29aaa799f929a8c4e34de4bcb0c361a749b8",
+    "tests/test_terrain_shape.py": "5f14c1ff1c1782fff4a899e4f06637a0e9a2ce2822c3c15a7f6c31b835be6b03",
+    "tests/test_tree_schematics.py": "d964a93b2b748a5fbab4670155b0ed2e766eee09cf5fafdeab8416487bb376af",
+    "tests/test_vegetation_edges.py": "d0245800a2c715d60c9b7fcda3d93aec612298f8f877161d2cbe18b4c46bbaef",
+    "tests/test_water_ecology.py": "0174e945e34a94df8cd1a0fc98441483ce07f9e2d41b55d6c48d25d3aa318d36",
+    "tests/test_water_v2_basins.py": "8d9a066952e82c59562ed2ceabe29abd2b0b6c190f721b08e3f391a99c2ee0bf",
+    "tests/test_water_v2_blocks.py": "04b2d13aead4968a6bca5eff331e447593beead1fcb46ff17de0882bc530f6c7",
+    "tests/test_water_v2_engine.py": "f3c685ff8f71186a9294e6bd9daa88ba7ec47d93a3001e0133443e6842f62958",
+    "tests/test_water_v2_fluids.py": "a469bd388bf335e79a7cfc32df19afb1ea491443ff21ceb9a7bdcc28dabfcff5",
+    "tests/test_water_v2_levels.py": "49214b3059b4e2fa2d313671c7a31e5ee7d06dee188d1ceb33354d5675301319",
+    "tests/test_water_v2_product.py": "ff399060e724f6253edb1f550c2eded4089271e29bdec188ae43eddbb66222e7",
+    "tests/test_water_v2_scenarios.py": "0753f23ad567e7bc7ac7abdf23ebb4eede4833bf2ada6776a0995d2af55eec15",
+    "tests/test_water_v2_topology.py": "9857512f82c7c28798f6bb88f27b67b451be7bc3657dc7c223ce4a2d30aad9ae",
+    "tests/test_wide_water.py": "62a91d3416ba76ccb95de8ce4cf4b22dd41d461b2a064a21158ec208a4302408",
+    "tests/test_world_scale.py": "5b5c2318c65ba11b8a2f3737742d5d37e82c03a2f87242a1475c098bc0a16716",
+    "tree_schematics.py": "f6878b05d39803251b3c4226e86f727ed6ef4db6a1480d9592f69814c9253489",
+    "vegetation.py": "18215744fda03e12569239e401e594319cfe6f7d5c6da52c46c79912c24b1386",
+    "verify_hydrology.py": "f09b143e975229b5286a38b7ecf8c4305005385986187deb5fc5c5333f5a4441",
+    "water_ecology.py": "73f7a6a391c6688c7aa734f5f4415240c36de6a3c00fd7ff6411f359d0483a63",
+    "water_v2/__init__.py": "95239d105b0606a037427289c23ceef9977f085eef0a6b04dc522e2bb2045ae2",
+    "water_v2/__main__.py": "69b273a43fdb06c7bb41a4ca01448f492c087db1622c78314ae5e62755360288",
+    "water_v2/basins.py": "6d630e54a5048e1120de828939a60eb534a8b615feb78a58f7b0289fb85c0bb8",
+    "water_v2/blocks.py": "fd56bfec9768afd78bf92de7b06c6830be95048633d80864eb18f7b661d57bf6",
+    "water_v2/diagnostics.py": "a27fed500cee814f2fafa48b898738efe0cfb45cc756000e8872fa832741ce0e",
+    "water_v2/engine.py": "cc3bc9a791d3712eb5a8c43f7c51a63a07de91b59a2c2ff36691bb59f6bbf3cb",
+    "water_v2/fluids.py": "9368e8be76dce0b0d2ed2dce5ad3155243bf6209bff1bf3005407f4da733b543",
+    "water_v2/levels.py": "9467cc160e56965ffa52d06924f48d25c7ddfd54564db9051e78ddcab6db00a3",
+    "water_v2/model.py": "4a8c73bcafc85866091946e1f1cd5fed1e8d727736bd55638a6c5ef5748904dc",
+    "water_v2/scenarios.py": "a406847e088632dcb170ee1560ebe2a748c7e7b950f0b9461d3bc47d06d0535f",
+    "water_v2/topology.py": "11bd9ffdd838159a9e8e33cf255e38dbae54e71d9d515b424a831fc1e5cf4526"
+  },
+  "provenance": {
+    "lake_mouth": {
+      "created_utc": "2026-09-14T10:46:12.940903+00:00",
+      "terrain": "F:\\GitHub\\mc-worldmap\\terrain_y.npy",
+      "terrain_sha256": "c81d5372853e81364336eb5e25814020edf745206c235339eb46c2590daa2ba4",
+      "sources": "F:\\GitHub\\mc-worldmap\\water_sources.npz",
+      "sources_sha256": "5a8764bed34c6c547ac4f1e07b2d552eddf8e91d23543f81346a3d417ae2ba55",
+      "source_code_sha256": {
+        "__init__.py": "95239d105b0606a037427289c23ceef9977f085eef0a6b04dc522e2bb2045ae2",
+        "__main__.py": "69b273a43fdb06c7bb41a4ca01448f492c087db1622c78314ae5e62755360288",
+        "basins.py": "6d630e54a5048e1120de828939a60eb534a8b615feb78a58f7b0289fb85c0bb8",
+        "blocks.py": "fd56bfec9768afd78bf92de7b06c6830be95048633d80864eb18f7b661d57bf6",
+        "diagnostics.py": "a27fed500cee814f2fafa48b898738efe0cfb45cc756000e8872fa832741ce0e",
+        "engine.py": "cc3bc9a791d3712eb5a8c43f7c51a63a07de91b59a2c2ff36691bb59f6bbf3cb",
+        "fluids.py": "9368e8be76dce0b0d2ed2dce5ad3155243bf6209bff1bf3005407f4da733b543",
+        "levels.py": "9467cc160e56965ffa52d06924f48d25c7ddfd54564db9051e78ddcab6db00a3",
+        "model.py": "4a8c73bcafc85866091946e1f1cd5fed1e8d727736bd55638a6c5ef5748904dc",
+        "scenarios.py": "a406847e088632dcb170ee1560ebe2a748c7e7b950f0b9461d3bc47d06d0535f",
+        "topology.py": "11bd9ffdd838159a9e8e33cf255e38dbae54e71d9d515b424a831fc1e5cf4526"
+      },
+      "bounds": [
+        2050,
+        2434,
+        2865,
+        3249
+      ],
+      "routing_corridor_blocks": 3,
+      "metres_per_block": 4,
+      "settings": {
+        "river_incision": 1,
+        "max_excavation": 4,
+        "max_lake_depth": 31,
+        "lake_shelf": 26.0,
+        "max_river_depth": 4,
+        "ordinary_drop": 2,
+        "max_stage_raise": 1,
+        "lake_min_cells": 48,
+        "lake_min_radius": 3.0,
+        "min_y": -64,
+        "max_y": 718
+      }
+    },
+    "hill_junction": {
+      "created_utc": "2026-09-14T10:46:14.897145+00:00",
+      "terrain": "F:\\GitHub\\mc-worldmap\\terrain_y.npy",
+      "terrain_sha256": "c81d5372853e81364336eb5e25814020edf745206c235339eb46c2590daa2ba4",
+      "sources": "F:\\GitHub\\mc-worldmap\\water_sources.npz",
+      "sources_sha256": "5a8764bed34c6c547ac4f1e07b2d552eddf8e91d23543f81346a3d417ae2ba55",
+      "source_code_sha256": {
+        "__init__.py": "95239d105b0606a037427289c23ceef9977f085eef0a6b04dc522e2bb2045ae2",
+        "__main__.py": "69b273a43fdb06c7bb41a4ca01448f492c087db1622c78314ae5e62755360288",
+        "basins.py": "6d630e54a5048e1120de828939a60eb534a8b615feb78a58f7b0289fb85c0bb8",
+        "blocks.py": "fd56bfec9768afd78bf92de7b06c6830be95048633d80864eb18f7b661d57bf6",
+        "diagnostics.py": "a27fed500cee814f2fafa48b898738efe0cfb45cc756000e8872fa832741ce0e",
+        "engine.py": "cc3bc9a791d3712eb5a8c43f7c51a63a07de91b59a2c2ff36691bb59f6bbf3cb",
+        "fluids.py": "9368e8be76dce0b0d2ed2dce5ad3155243bf6209bff1bf3005407f4da733b543",
+        "levels.py": "9467cc160e56965ffa52d06924f48d25c7ddfd54564db9051e78ddcab6db00a3",
+        "model.py": "4a8c73bcafc85866091946e1f1cd5fed1e8d727736bd55638a6c5ef5748904dc",
+        "scenarios.py": "a406847e088632dcb170ee1560ebe2a748c7e7b950f0b9461d3bc47d06d0535f",
+        "topology.py": "11bd9ffdd838159a9e8e33cf255e38dbae54e71d9d515b424a831fc1e5cf4526"
+      },
+      "bounds": [
+        3152,
+        3536,
+        288,
+        672
+      ],
+      "routing_corridor_blocks": 3,
+      "metres_per_block": 4,
+      "settings": {
+        "river_incision": 1,
+        "max_excavation": 4,
+        "max_lake_depth": 31,
+        "lake_shelf": 26.0,
+        "max_river_depth": 4,
+        "ordinary_drop": 2,
+        "max_stage_raise": 1,
+        "lake_min_cells": 48,
+        "lake_min_radius": 3.0,
+        "min_y": -64,
+        "max_y": 718
+      }
+    },
+    "steep_stream": {
+      "created_utc": "2026-09-14T10:46:19.488094+00:00",
+      "terrain": "F:\\GitHub\\mc-worldmap\\terrain_y.npy",
+      "terrain_sha256": "c81d5372853e81364336eb5e25814020edf745206c235339eb46c2590daa2ba4",
+      "sources": "F:\\GitHub\\mc-worldmap\\water_sources.npz",
+      "sources_sha256": "5a8764bed34c6c547ac4f1e07b2d552eddf8e91d23543f81346a3d417ae2ba55",
+      "source_code_sha256": {
+        "__init__.py": "95239d105b0606a037427289c23ceef9977f085eef0a6b04dc522e2bb2045ae2",
+        "__main__.py": "69b273a43fdb06c7bb41a4ca01448f492c087db1622c78314ae5e62755360288",
+        "basins.py": "6d630e54a5048e1120de828939a60eb534a8b615feb78a58f7b0289fb85c0bb8",
+        "blocks.py": "fd56bfec9768afd78bf92de7b06c6830be95048633d80864eb18f7b661d57bf6",
+        "diagnostics.py": "a27fed500cee814f2fafa48b898738efe0cfb45cc756000e8872fa832741ce0e",
+        "engine.py": "cc3bc9a791d3712eb5a8c43f7c51a63a07de91b59a2c2ff36691bb59f6bbf3cb",
+        "fluids.py": "9368e8be76dce0b0d2ed2dce5ad3155243bf6209bff1bf3005407f4da733b543",
+        "levels.py": "9467cc160e56965ffa52d06924f48d25c7ddfd54564db9051e78ddcab6db00a3",
+        "model.py": "4a8c73bcafc85866091946e1f1cd5fed1e8d727736bd55638a6c5ef5748904dc",
+        "scenarios.py": "a406847e088632dcb170ee1560ebe2a748c7e7b950f0b9461d3bc47d06d0535f",
+        "topology.py": "11bd9ffdd838159a9e8e33cf255e38dbae54e71d9d515b424a831fc1e5cf4526"
+      },
+      "bounds": [
+        5600,
+        5984,
+        5192,
+        5576
+      ],
+      "routing_corridor_blocks": 3,
+      "metres_per_block": 4,
+      "settings": {
+        "river_incision": 1,
+        "max_excavation": 4,
+        "max_lake_depth": 31,
+        "lake_shelf": 26.0,
+        "max_river_depth": 4,
+        "ordinary_drop": 2,
+        "max_stage_raise": 1,
+        "lake_min_cells": 48,
+        "lake_min_radius": 3.0,
+        "min_y": -64,
+        "max_y": 718
+      }
+    },
+    "player_liked": {
+      "created_utc": "2026-09-14T10:46:21.051047+00:00",
+      "terrain": "F:\\GitHub\\mc-worldmap\\terrain_y.npy",
+      "terrain_sha256": "c81d5372853e81364336eb5e25814020edf745206c235339eb46c2590daa2ba4",
+      "sources": "F:\\GitHub\\mc-worldmap\\water_sources.npz",
+      "sources_sha256": "5a8764bed34c6c547ac4f1e07b2d552eddf8e91d23543f81346a3d417ae2ba55",
+      "source_code_sha256": {
+        "__init__.py": "95239d105b0606a037427289c23ceef9977f085eef0a6b04dc522e2bb2045ae2",
+        "__main__.py": "69b273a43fdb06c7bb41a4ca01448f492c087db1622c78314ae5e62755360288",
+        "basins.py": "6d630e54a5048e1120de828939a60eb534a8b615feb78a58f7b0289fb85c0bb8",
+        "blocks.py": "fd56bfec9768afd78bf92de7b06c6830be95048633d80864eb18f7b661d57bf6",
+        "diagnostics.py": "a27fed500cee814f2fafa48b898738efe0cfb45cc756000e8872fa832741ce0e",
+        "engine.py": "cc3bc9a791d3712eb5a8c43f7c51a63a07de91b59a2c2ff36691bb59f6bbf3cb",
+        "fluids.py": "9368e8be76dce0b0d2ed2dce5ad3155243bf6209bff1bf3005407f4da733b543",
+        "levels.py": "9467cc160e56965ffa52d06924f48d25c7ddfd54564db9051e78ddcab6db00a3",
+        "model.py": "4a8c73bcafc85866091946e1f1cd5fed1e8d727736bd55638a6c5ef5748904dc",
+        "scenarios.py": "a406847e088632dcb170ee1560ebe2a748c7e7b950f0b9461d3bc47d06d0535f",
+        "topology.py": "11bd9ffdd838159a9e8e33cf255e38dbae54e71d9d515b424a831fc1e5cf4526"
+      },
+      "bounds": [
+        5973,
+        6357,
+        5876,
+        6260
+      ],
+      "routing_corridor_blocks": 3,
+      "metres_per_block": 4,
+      "settings": {
+        "river_incision": 1,
+        "max_excavation": 4,
+        "max_lake_depth": 31,
+        "lake_shelf": 26.0,
+        "max_river_depth": 4,
+        "ordinary_drop": 2,
+        "max_stage_raise": 1,
+        "lake_min_cells": 48,
+        "lake_min_radius": 3.0,
+        "min_y": -64,
+        "max_y": 718
+      }
+    }
+  },
+  "cases": {
+    "lake_mouth": {
+      "center": {
+        "x": 2242,
+        "z": 3057
+      },
+      "bounds": [
+        2050,
+        2434,
+        2865,
+        3249
+      ],
+      "product": "F:\\GitHub\\mc-worldmap\\water_runs\\water_v2_w2_20260914_f\\lake_mouth.npz",
+      "product_sha256": "903b1d0953d1ef1dea6e7bcdeaed39d21146b1d3563ab38d1762ff2f20bb88aa",
+      "product_readback": "passed",
+      "elapsed_seconds": 2.219,
+      "scenario_gate_passed": true,
+      "ready_for_world_write": true,
+      "violations": {},
+      "examples": {},
+      "domain": "bounded_scene",
+      "water_cells": 7640,
+      "lake_count": 0,
+      "river_pool_cells": 6189,
+      "river_pool_count": 51,
+      "graph_nodes": 7640,
+      "graph_edges": 14025,
+      "source_cells": 6368,
+      "flowing_cells": 1272,
+      "dry_terrain_modified": 0,
+      "routing_strategy": "forward",
+      "routing_attempts": [
+        {
+          "strategy": "forward",
+          "violations": {}
+        }
+      ],
+      "source_nodes": 28,
+      "source_edges": 26,
+      "maximum_source_width_metres": 4.0,
+      "planned_blocks": 27476
+    },
+    "hill_junction": {
+      "center": {
+        "x": 3344,
+        "z": 480
+      },
+      "bounds": [
+        3152,
+        3536,
+        288,
+        672
+      ],
+      "product": "F:\\GitHub\\mc-worldmap\\water_runs\\water_v2_w2_20260914_f\\hill_junction.npz",
+      "product_sha256": "536c668276d87caa3e9e42d722a014759ae96be9c3f43cc2b572cf8f2cb53615",
+      "product_readback": "passed",
+      "elapsed_seconds": 1.844,
+      "scenario_gate_passed": true,
+      "ready_for_world_write": true,
+      "violations": {},
+      "examples": {},
+      "domain": "bounded_scene",
+      "water_cells": 2783,
+      "lake_count": 0,
+      "river_pool_cells": 0,
+      "river_pool_count": 0,
+      "graph_nodes": 2751,
+      "graph_edges": 2742,
+      "source_cells": 34,
+      "flowing_cells": 2749,
+      "dry_terrain_modified": 0,
+      "routing_strategy": "forward",
+      "routing_attempts": [
+        {
+          "strategy": "forward",
+          "violations": {}
+        }
+      ],
+      "source_nodes": 241,
+      "source_edges": 232,
+      "maximum_source_width_metres": 4.0,
+      "planned_blocks": 10019
+    },
+    "steep_stream": {
+      "center": {
+        "x": 5792,
+        "z": 5384
+      },
+      "bounds": [
+        5600,
+        5984,
+        5192,
+        5576
+      ],
+      "product": "F:\\GitHub\\mc-worldmap\\water_runs\\water_v2_w2_20260914_f\\steep_stream.npz",
+      "product_sha256": "ef2318ce2093880441d3c4365db42209092472d6b47fef4edfe49d72b9320b27",
+      "product_readback": "passed",
+      "elapsed_seconds": 4.625,
+      "scenario_gate_passed": true,
+      "ready_for_world_write": true,
+      "violations": {},
+      "examples": {},
+      "domain": "bounded_scene",
+      "water_cells": 4530,
+      "lake_count": 0,
+      "river_pool_cells": 2208,
+      "river_pool_count": 5,
+      "graph_nodes": 4493,
+      "graph_edges": 6385,
+      "source_cells": 2302,
+      "flowing_cells": 2228,
+      "dry_terrain_modified": 0,
+      "routing_strategy": "valley_forward",
+      "routing_attempts": [
+        {
+          "strategy": "forward",
+          "violations": {
+            "unplanned_water_contact": 4,
+            "ambiguous_route_crossing": 1
+          }
+        },
+        {
+          "strategy": "reverse",
+          "violations": {
+            "infeasible_section_level": 1,
+            "excessive_river_excavation": 1
+          }
+        },
+        {
+          "strategy": "valley_forward",
+          "violations": {}
+        }
+      ],
+      "source_nodes": 471,
+      "source_edges": 469,
+      "maximum_source_width_metres": 12.0,
+      "planned_blocks": 16298
+    },
+    "player_liked": {
+      "center": {
+        "x": 6165,
+        "z": 6068
+      },
+      "bounds": [
+        5973,
+        6357,
+        5876,
+        6260
+      ],
+      "product": "F:\\GitHub\\mc-worldmap\\water_runs\\water_v2_w2_20260914_f\\player_liked.npz",
+      "product_sha256": "0f458fb5d43f17ec3b3aec318459ecabb929154ce9fa9df47001f41f9cfb4d67",
+      "product_readback": "passed",
+      "elapsed_seconds": 1.546,
+      "scenario_gate_passed": true,
+      "ready_for_world_write": true,
+      "violations": {},
+      "examples": {},
+      "domain": "bounded_scene",
+      "water_cells": 2133,
+      "lake_count": 0,
+      "river_pool_cells": 1249,
+      "river_pool_count": 15,
+      "graph_nodes": 2123,
+      "graph_edges": 2867,
+      "source_cells": 1279,
+      "flowing_cells": 854,
+      "dry_terrain_modified": 0,
+      "routing_strategy": "forward",
+      "routing_attempts": [
+        {
+          "strategy": "forward",
+          "violations": {}
+        }
+      ],
+      "source_nodes": 98,
+      "source_edges": 95,
+      "maximum_source_width_metres": 12.0,
+      "planned_blocks": 7632
+    }
+  },
+  "artifact_sha256": {
+    "water_runs/water_v2_w2_20260914_f/summary.json": "10b9586c75a6dd5b2b1ddc3f0211bd09067fd346586be04f5cfbabca6198bca9",
+    "water_runs/water_v2_w2_20260914_f/review.json": "40f739cdcd2db05b5a6b23094d26dfb1113b4fdf8d8e92a8cd9b4460d7e19d29",
+    "water_runs/water_v2_w2_20260914_f/diagnostic-plans.png": "dc02867310af294617a2e72c7b3357c80cf76d01e7f037de5f79f537d21c09e4",
+    "water_runs/water_v2_w2_20260914_f/source_snapshot.json": "426e9e987d8ecf44a43d8e35058922f11f49f73a5b03b51c41f81f8b887b78bf",
+    "logs/water-v2-w2-tests-20260914-f.log": "a53540e7736650ef5ec1234106d9d702e4a9a9de5ce14aff15efe1ee7cb68869",
+    "logs/water-v2-w2-scenarios-20260914-f.log": "f05eb94e6dd08422814e3862bfe5ec30dc32cf24c1e06f4c589bcf791ef78df3",
+    "water_runs/water_v2_w2_20260914_f/lake_mouth.npz": "903b1d0953d1ef1dea6e7bcdeaed39d21146b1d3563ab38d1762ff2f20bb88aa",
+    "water_runs/water_v2_w2_20260914_f/lake_mouth.json": "0381ee637b76d5861675c2cba917255734cec4c3a710e396177304397b8266e5",
+    "water_runs/water_v2_w2_20260914_f/hill_junction.npz": "536c668276d87caa3e9e42d722a014759ae96be9c3f43cc2b572cf8f2cb53615",
+    "water_runs/water_v2_w2_20260914_f/hill_junction.json": "88dae3c53e2324045998a4a81db495bae8f8f70d0b65f0b0e31a52201dd47e12",
+    "water_runs/water_v2_w2_20260914_f/steep_stream.npz": "ef2318ce2093880441d3c4365db42209092472d6b47fef4edfe49d72b9320b27",
+    "water_runs/water_v2_w2_20260914_f/steep_stream.json": "ff64ee7f4e10817569a8eabc0e466a7fd9ab00cd51d94a84994266ed4a64c506",
+    "water_runs/water_v2_w2_20260914_f/player_liked.npz": "0f458fb5d43f17ec3b3aec318459ecabb929154ce9fa9df47001f41f9cfb4d67",
+    "water_runs/water_v2_w2_20260914_f/player_liked.json": "5d1a32f80cd468932d4457ba1a610b4084ed6a80ffe35c245ff609a4ce1ff8ec"
+  },
+  "limitations": [
+    "No Minecraft writer is connected to water-v2.",
+    "NPZ readback is not world readback.",
+    "Surface supply model does not simulate complete vanilla ticks.",
+    "Independent scene crops do not establish global/seam parity.",
+    "Diagnostic coordinate examples include at most eight per failure category."
+  ]
+}

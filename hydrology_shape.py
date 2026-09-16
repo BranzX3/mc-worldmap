@@ -8,6 +8,8 @@ import os
 import sys
 import heapq
 import json
+import tempfile
+from contextlib import contextmanager
 
 import numpy as np
 from scipy import ndimage
@@ -498,7 +500,8 @@ def taper_bank_lift(terrain, near_stage, distance, seal_blocks=BANK_SEAL_BLOCKS,
     return terrain + lift
 
 
-def hillside_rise_per_block(terrain, minimum=1.0, maximum=6.0, smooth=3):
+def hillside_rise_per_block(terrain, minimum=1.0, maximum=6.0, smooth=3,
+                           *, row_batch=256):
     """ความชันของภูมิประเทศเดิม เป็นบล็อกต่อบล็อก — เพดานการลาดตลิ่ง
 
     `taper_bank_cut` เดิมยอมให้ตลิ่งสูงขึ้นได้ 1 บล็อกต่อระยะ 1 บล็อกตายตัว
@@ -510,12 +513,28 @@ def hillside_rise_per_block(terrain, minimum=1.0, maximum=6.0, smooth=3):
     ให้เพดานไต่ตามความชันจริงของไหล่เขาแทน ตลิ่งจึงกลืนกับภูมิประเทศรอบข้าง
     ส่วนที่ราบ (ชัน ~0) ยังใช้ค่าต่ำสุด 1.0 เหมือนเดิม พฤติกรรมตรงนั้นไม่เปลี่ยน
     """
-    terrain = np.asarray(terrain, dtype=np.float32)
-    gz, gx = np.gradient(terrain)
-    slope = np.hypot(gz, gx)
-    if smooth and smooth > 1:
-        slope = ndimage.uniform_filter(slope, size=int(smooth), mode="nearest")
-    return np.clip(slope, float(minimum), float(maximum))
+    # Full-map float32 conversion + two gradients + temporaries used several
+    # GB even for a small acceptance patch. Keep only the result full-sized;
+    # one gradient cell plus the filter radius shields each batch boundary.
+    terrain = np.asarray(terrain)
+    if terrain.ndim != 2 or min(terrain.shape) < 2:
+        raise ValueError("terrain must be 2D with at least two cells per axis")
+    if int(row_batch) < 1:
+        raise ValueError("row_batch must be positive")
+    kernel = int(smooth) if smooth and smooth > 1 else 1
+    halo = kernel // 2 + 1
+    result = np.empty(terrain.shape, dtype=np.float32)
+    for start in range(0, terrain.shape[0], int(row_batch)):
+        stop = min(terrain.shape[0], start + int(row_batch))
+        lo, hi = max(0, start - halo), min(terrain.shape[0], stop + halo)
+        window = np.asarray(terrain[lo:hi], dtype=np.float32)
+        gz, gx = np.gradient(window)
+        slope = np.hypot(gz, gx)
+        if kernel > 1:
+            slope = ndimage.uniform_filter(slope, size=kernel, mode="nearest")
+        np.clip(slope, float(minimum), float(maximum), out=slope)
+        result[start:stop] = slope[start - lo:stop - lo]
+    return result
 
 
 def taper_bank_cut(terrain, near_stage, distance, margin=0,
@@ -1139,6 +1158,10 @@ STANDING_LEVEL_PERCENTILE = 0.10
 # ที่ราบคือที่ที่ความชันต่ำกว่านี้ (บล็อกต่อบล็อก) — ลำธารบนไหล่เขาชันกว่านี้และ
 # อยู่ในร่องเขาอยู่แล้ว ไม่ต้องขุดเพิ่ม (ผู้เล่นยืนยันว่าลำธารภูเขาสวยอยู่แล้ว)
 FLOODPLAIN_MAX_SLOPE = 0.6
+# Only override source ordering when robust endpoint elevations disagree by
+# more than rounding noise. Nine half-block samples cover about four blocks.
+PROFILE_DIRECTION_WINDOW = 9
+PROFILE_DIRECTION_MIN_RISE = 2
 
 
 def _incise_ceiling(full_terrain, waterbody, slope_field, sample_x, sample_z):
@@ -1196,33 +1219,63 @@ def line_profile_entries(
         if stop - start < 2:
             continue
         gx, gz = rx[start:stop], rz[start:stop]
+        sample_x, sample_z = sx[start:stop], sz[start:stop]
+        raw = full_terrain[gz, gx]
+        window = min(PROFILE_DIRECTION_WINDOW, max(1, len(raw) // 2))
+        reversed_source = (
+            float(np.median(raw[-window:])) - float(np.median(raw[:window]))
+            >= PROFILE_DIRECTION_MIN_RISE
+        )
+        if reversed_source:
+            # Real source line 4646 at lake_mouth runs from y=77 to y=108.
+            # Feeding it uphill into the non-increasing solver flattened the
+            # entire reach to y=77, cutting 25 blocks into the local terrain.
+            # Reverse coordinates and every spatial constraint together, once
+            # on the full in-map profile, before regularizing or lake pinning.
+            gx, gz = gx[::-1], gz[::-1]
+            sample_x, sample_z = sample_x[::-1], sample_z[::-1]
+            raw = raw[::-1]
         stage = regularize_stage(
-            full_terrain[gz, gx],
+            raw,
             max_drop_per_sample=max_drop_per_sample,
             gentle_drop_per_sample=STREAM_MAX_STEP * DENSIFY_SPACING,
             cliff_drop_per_sample=cliff_drop_per_sample(),
             pool_samples=MIN_POOL_BLOCKS / DENSIFY_SPACING,
             pool_confine=bank_confinement(
-                full_terrain, sx[start:stop], sz[start:stop], radius
+                full_terrain, sample_x, sample_z, radius
             ),
             pool_width=(
                 None if waterbody is None
                 else channel_width(
-                    waterbody, sx[start:stop], sz[start:stop]
+                    waterbody, sample_x, sample_z
                 )
             ),
             incise_ceiling=_incise_ceiling(
                 full_terrain, waterbody, slope_field,
-                sx[start:stop], sz[start:stop],
+                sample_x, sample_z,
             ),
         )
         gx, gz, stage = cardinalize_samples(gx, gz, stage)
+        # Pool quantization and rounded duplicate samples can concentrate a
+        # gentle descent into a false waterfall. Check the actual cardinal
+        # DEM edges after both operations, before assigning cross-sections.
+        raw_cardinal = full_terrain[gz, gx].astype(np.int32)
+        edge_drop = np.where(
+            raw_cardinal[:-1] - raw_cardinal[1:] >= WATERFALL_TERRAIN_DROP,
+            np.iinfo(np.int16).max, UNSUPPORTED_MAX_STEP,
+        ).astype(np.int32)
+        stage = stage.astype(np.int32)
+        for i in range(len(stage) - 2, -1, -1):
+            stage[i] = min(stage[i], stage[i + 1] + edge_drop[i])
+        stage = stage.astype(np.int16)
         entries.append({
             "x": gx,
             "z": gz,
             "stage": stage,
+            "edge_drop": edge_drop,
             "kind": kind,
             "radius": radius,
+            "source_reversed": bool(reversed_source),
             "bounds": (
                 int(gx.min()), int(gx.max()) + 1,
                 int(gz.min()), int(gz.max()) + 1,
@@ -1240,6 +1293,11 @@ def build_line_profiles(
     # อ่าน mask ครั้งเดียว — `sources` เป็น NpzFile การ index ทุกครั้งคือการ
     # คลาย 100 MB ใหม่ ถ้าเรียกในลูป 4,882 เส้นจะช้าจนดูเหมือนค้าง
     waterbody = np.asarray(sources["waterbody_mask"], dtype=bool)
+    # NpzFile decompresses on every lookup. These small, repeatedly sampled
+    # vectors must be materialized once when preparing the full network.
+    sources = {key: sources[key] for key in (
+        "points_x", "points_z", "offsets", "kind", "width_m",
+    )}
     # ครั้งเดียวทั้งแผนที่ — คำนวณต่อเส้นคือ gradient 100M cell x 4,882 รอบ
     slope_field = hillside_rise_per_block(
         np.asarray(full_terrain), minimum=0.0
@@ -1368,8 +1426,7 @@ def waterway_depth_from_banks(way, kind_depth, x0=0, z0=0, water=None):
 
 def shape_standing_water_patch(
     base_y, sources, x0, x1, z0, z1, bank_width=BANK_BLEND_BLOCKS,
-    distance_pad=256,
-    standing_surface=None,
+    distance_pad=256, *, standing_surface,
 ):
     """Flatten standing-water components, form banks, and carve bathymetry."""
     base_y = np.asarray(base_y, dtype=np.int16)
@@ -1377,31 +1434,13 @@ def shape_standing_water_patch(
     if base_y.shape != expected:
         raise ValueError("base_y shape must match patch bounds")
     full_body = sources["waterbody_mask"]
-    body = full_body[z0:z1, x0:x1].astype(bool)
-    if standing_surface is not None:
-        supplied = np.asarray(standing_surface, dtype=np.int16)
-        body = supplied != UNRESOLVED
-    if standing_surface is None:
-        labels, count = ndimage.label(
-            body, structure=ndimage.generate_binary_structure(2, 1)
-        )
-        surface = np.full(expected, UNRESOLVED, dtype=np.int16)
-        component_levels = np.zeros(count + 1, dtype=np.int16)
-        for component_i in range(1, count + 1):
-            component = labels == component_i
-            values = base_y[component].astype(np.int32)
-            low = int(values.min())
-            level = low + int(np.bincount(values - low).argmax())
-            component_levels[component_i] = level
-            surface[component] = level
-    else:
-        standing_surface = np.asarray(standing_surface, dtype=np.int16)
-        if standing_surface.shape != expected:
-            raise ValueError("standing_surface shape must match patch bounds")
-        labels = np.zeros(expected, dtype=np.int32)
-        component_levels = np.zeros(1, dtype=np.int16)
-        surface = np.full(expected, UNRESOLVED, dtype=np.int16)
-        surface[body] = standing_surface[body]
+    standing_surface = np.asarray(standing_surface, dtype=np.int16)
+    if standing_surface.shape != expected:
+        raise ValueError("standing_surface shape must match patch bounds")
+    body = standing_surface != UNRESOLVED
+    labels = np.zeros(expected, dtype=np.int32)
+    component_levels = np.zeros(1, dtype=np.int16)
+    surface = standing_surface.copy()
 
     pad = max(1, int(distance_pad))
     px0, px1 = max(0, x0 - pad), min(full_body.shape[1], x1 + pad)
@@ -1552,8 +1591,14 @@ def pin_profile_to_standing_water(
     for i in range(len(floor) - 2, -1, -1):
         floor[i] = max(int(floor[i]), int(floor[i + 1]))
     step = max(1, int(max_surface_step))
+    edge_drop = np.minimum(
+        np.asarray(profile.get("edge_drop", np.full(max(0, len(stage) - 1), step)),
+                   dtype=np.int32), step,
+    )
+    if edge_drop.shape != (max(0, len(stage) - 1),):
+        raise ValueError("profile edge_drop must describe each adjacent sample pair")
     for i in range(1, len(floor)):
-        floor[i] = max(int(floor[i]), int(floor[i - 1]) - step)
+        floor[i] = max(int(floor[i]), int(floor[i - 1]) - int(edge_drop[i - 1]))
     stage = np.maximum(stage, floor)
 
     # Settle toward downstream controls.  This retains the old, required
@@ -1561,11 +1606,62 @@ def pin_profile_to_standing_water(
     # prevents that descent from cutting any lake contact below its level.
     for i in range(len(stage) - 2, -1, -1):
         lower = max(int(stage[i + 1]), int(floor[i]))
-        upper = int(stage[i + 1]) + step
+        upper = int(stage[i + 1]) + int(edge_drop[i])
         stage[i] = np.clip(stage[i], lower, upper)
 
     pinned["stage"] = stage.astype(np.int16)
     return pinned
+
+
+def raster_water_flow(surface, water, reach=8):
+    """Estimate flow on wide water without an OSM centreline.
+
+    Trace eight downstream rays over connected, non-increasing water only.
+    Average head loss over each reachable ray, so quantized flat terraces
+    inherit their downstream gradient without sampling dry banks or remote
+    channels. Index units match channel_sections: gradient * 1000, capped 255.
+    A completely flat basin has zero flow. Callers need a halo >= reach.
+    """
+    surface = np.asarray(surface, dtype=np.int32)
+    water = np.asarray(water, dtype=bool)
+    if surface.shape != water.shape or surface.ndim != 2:
+        raise ValueError("surface and water must be matching 2D arrays")
+    if int(reach) < 1:
+        raise ValueError("reach must be positive")
+    best = np.zeros(surface.shape, dtype=np.float32)
+    flow_x = np.zeros(surface.shape, dtype=np.int8)
+    flow_z = np.zeros(surface.shape, dtype=np.int8)
+    for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                   (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        active = water.copy()
+        previous = surface
+        slope = np.zeros(surface.shape, dtype=np.float32)
+        length = float(np.hypot(dx, dz))
+        for distance in range(1, int(reach) + 1):
+            offset = (-dz * distance, -dx * distance)
+            wet = ndimage.shift(water, offset, order=0, mode="constant", cval=False, prefilter=False)
+            level = ndimage.shift(surface, offset, order=0, mode="constant", cval=UNRESOLVED, prefilter=False)
+            active &= wet & (level <= previous)
+            if dz and dx:
+                # Minecraft connects water cardinally. A diagonal ray may
+                # turn a corner only through a wet, descending orthogonal cell.
+                bridge = np.zeros(water.shape, dtype=bool)
+                for shift in ((-dz * (distance - 1), -dx * distance),
+                              (-dz * distance, -dx * (distance - 1))):
+                    bw = ndimage.shift(water, shift, order=0, mode="constant", cval=False, prefilter=False)
+                    by = ndimage.shift(surface, shift, order=0, mode="constant", cval=UNRESOLVED, prefilter=False)
+                    bridge |= bw & (by <= previous) & (by >= level)
+                active &= bridge
+            if not active.any():
+                break
+            slope[active] = (surface[active] - level[active]) / (distance * length)
+            previous = level
+        choose = water & (slope > best)
+        best[choose] = slope[choose]
+        flow_x[choose] = int(np.rint(127 * dx / length))
+        flow_z[choose] = int(np.rint(127 * dz / length))
+    strength = np.rint(np.clip(best, 0.0, 0.255) * 1000).astype(np.uint8)
+    return flow_x, flow_z, strength
 
 
 def shape_waterway_sections(
@@ -1657,19 +1753,27 @@ def shape_waterway_sections(
     # (LiDAR ยิงไม่ทะลุน้ำ ค่าที่อ่านได้จึงเป็นผิวน้ำอยู่แล้ว) เหมือนของเดิม
     # `flowing_body` = polygon ของ OSM ที่ไม่ผ่านเกณฑ์น้ำนิ่ง
     #
-    # วัดทั้งแผนที่แล้วได้ **0 cell** — polygon ทุกผืนถูกจัดเป็นน้ำนิ่งหมด เคยเขียน
-    # template แยกสำหรับผืนพวกนี้แล้วพบว่าไม่เคยถูกเรียกเลย จึงถอดออกและเหลือ
-    # ทางสำรองสั้น ๆ ไว้เผื่อข้อมูลเปลี่ยน (ระดับ = terrain ท้องถิ่น เพราะ LiDAR
-    # ยิงไม่ทะลุน้ำ ค่าที่อ่านได้จึงเป็นผิวน้ำอยู่แล้ว)
+    # Shared patch/global classification exposes these sloped river polygons.
+    # They need a bank-to-bed profile and flow metadata too; a constant depth
+    # of one with zero flow made broad rivers look like flat stagnant puddles.
     wide = flowing_body & ~way & ~body
     if wide.any():
         way = way | wide
         surface = np.where(wide, base_y, surface).astype(np.int16)
-        depth = np.where(wide, np.maximum(depth, 1), depth).astype(np.uint8)
+        wide_depth = waterway_depth_from_banks(
+            way, np.ones(expected, dtype=np.float32), x0=x0, z0=z0,
+            water=way | body,
+        )
+        depth = np.where(wide, wide_depth, depth).astype(np.uint8)
         kind = np.where(
             wide, np.where(source_kind > 0, source_kind, 1), kind
         ).astype(np.uint8)
-        terrain = np.where(wide, base_y.astype(np.int32) - 1, terrain)
+        fx, fz, fi = raster_water_flow(
+            np.where(body, base_y, surface), way | body,
+        )
+        stamped["flow_x"][wide] = fx[wide]
+        stamped["flow_z"][wide] = fz[wide]
+        stamped["flow"][wide] = fi[wide]
 
     # ---- น้ำตก ----
     # ในโครงสร้างนี้ขั้นใหญ่มาจาก profile เท่านั้น (ซึ่งปลดล็อกเฉพาะที่หน้าผาจริง)
@@ -2146,6 +2250,24 @@ def shape_hydrology_patch(
     max_surface_step=MAX_WATERFALL_DROP,
 ):
     """Shape standing and flowing water together before either world consumer."""
+    if standing_surface is None:
+        # Classify complete components and pin complete profiles before cropping.
+        # A patch-local mode used to flatten the sloped lake_mouth polygon to
+        # y=75, excavating 49 blocks; the global path already rejected that basin.
+        full_shape = sources["waterbody_mask"].shape
+        full_terrain = (
+            base_y if (x0, z0) == (0, 0) and base_y.shape == full_shape
+            else np.load(os.path.join(HERE, "terrain_y.npy"), mmap_mode="r")
+        )
+        with open_hydrology_context(
+            sources, full_terrain, line_profiles=line_profiles,
+        ) as context:
+            return shape_hydrology_patch(
+                base_y, sources, x0, x1, z0, z1,
+                standing_surface=context["surface"][z0:z1, x0:x1],
+                line_profiles=context["profiles"],
+                max_surface_step=max_surface_step,
+            )
     standing = shape_standing_water_patch(
         base_y, sources, x0, x1, z0, z1,
         standing_surface=standing_surface,
@@ -2563,11 +2685,8 @@ def seam_step_report(surface, way, tile_size, row_batch=512):
 GLOBAL_HALO = 128
 
 
-def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
-    """Create disk-backed full-map hydrology products in bounded memory."""
-    os.makedirs(out_dir, exist_ok=True)
-    terrain = np.load(os.path.join(HERE, "terrain_y.npy"), mmap_mode="r")
-    sources = np.load(os.path.join(HERE, "water_sources.npz"))
+def prepare_hydrology_context(sources, terrain, out_dir, line_profiles=None):
+    """Shared full-component classification and full-profile lake controls."""
     body = np.asarray(sources["waterbody_mask"], dtype=bool)
     if terrain.shape != body.shape:
         raise ValueError("terrain_y and water_sources have different shapes")
@@ -2577,7 +2696,10 @@ def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
     # ห้ามใส่ค่าคนละชุดกับ --patch ที่นี่ — เดิม global ใช้ 6.0 ส่วน patch ใช้
     # ค่า default (MAX_WATERFALL_DROP / 2 = 2.0) ทำให้ acceptance ที่วัดจาก
     # patch ผ่านทั้งที่ผลลัพธ์ global หยาบกว่าสามเท่า และไม่มีอะไรฟ้อง
-    profiles = build_line_profiles(sources, terrain)
+    profiles = (
+        build_line_profiles(sources, terrain)
+        if line_profiles is None else line_profiles
+    )
     print(f"line profiles {len(profiles):,}")
 
     corridor = waterway_corridor(profiles, body.shape)
@@ -2608,6 +2730,31 @@ def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
         int(profile.get("standing_contacts", 0)) for profile in profiles
     )
     print(f"standing-water profile contacts {contact_count:,}")
+    return {"surface": standing_surface, "profiles": profiles,
+            "component_count": component_count}
+
+
+@contextmanager
+def open_hydrology_context(sources, terrain, line_profiles=None):
+    """Temporary shared context; close the Windows mapping before cleanup."""
+    with tempfile.TemporaryDirectory(prefix="mc-hydrology-") as directory:
+        context = prepare_hydrology_context(
+            sources, terrain, directory, line_profiles=line_profiles,
+        )
+        try:
+            yield context
+        finally:
+            context["surface"]._mmap.close()
+
+
+def shape_hydrology_global(out_dir, tile_size=512, halo=GLOBAL_HALO):
+    """Create disk-backed full-map hydrology products in bounded memory."""
+    os.makedirs(out_dir, exist_ok=True)
+    terrain = np.load(os.path.join(HERE, "terrain_y.npy"), mmap_mode="r")
+    sources = np.load(os.path.join(HERE, "water_sources.npz"))
+    context = prepare_hydrology_context(sources, terrain, out_dir)
+    standing_surface, profiles = context["surface"], context["profiles"]
+    component_count = context["component_count"]
 
     outputs = _global_output_arrays(out_dir, terrain.shape)
     height, width = terrain.shape

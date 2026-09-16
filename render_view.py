@@ -188,6 +188,34 @@ def hillshade(elev_m, spacing_m, azimuth=315.0, altitude=48.0):
     return np.clip(0.55 + 0.60 * sh, 0.42, 1.28)
 
 
+def camera_site_diagnostics(surface_y, cx, cz, origin, radius=12):
+    """Measure whether nearby terrain will dominate an eye-level render.
+
+    A camera placed in a narrow stream trench can legitimately have a cliff
+    tens of blocks above it only a few blocks away.  The ray marcher then
+    fills much of the frame with that wall, which used to be misdiagnosed as
+    a near-field LOD failure.  Report the local rise/drop so acceptance runs
+    can distinguish an obstructed camera site from a renderer regression.
+    """
+    surface_y = np.asarray(surface_y)
+    ox, oz = origin
+    ix, iz = int(round(cx)) - ox, int(round(cz)) - oz
+    if not (0 <= ix < surface_y.shape[0] and 0 <= iz < surface_y.shape[1]):
+        raise ValueError("camera is outside the rendered surface window")
+    radius = max(1, int(radius))
+    x0, x1 = max(0, ix - radius), min(surface_y.shape[0], ix + radius + 1)
+    z0, z1 = max(0, iz - radius), min(surface_y.shape[1], iz + radius + 1)
+    local = surface_y[x0:x1, z0:z1].astype(np.int32, copy=False)
+    center = int(surface_y[ix, iz])
+    return {
+        "radius": radius,
+        "center_y": center,
+        "rise": int(local.max()) - center,
+        "drop": center - int(local.min()),
+        "relief": int(local.max()) - int(local.min()),
+    }
+
+
 def _fill_spans(image, columns, tops, limits, colours):
     """ระบายแนวตั้ง [top, limit) ของแต่ละคอลัมน์ — vectorised
 
@@ -358,10 +386,21 @@ def main():
     ox, oz = scene["origin"]
     ground = int(scene["surface_y"][a["cx"] - ox, a["cz"] - oz])
     elev_m = float(scene["elev"][a["cx"] - ox, a["cz"] - oz])
+    site = camera_site_diagnostics(
+        scene["surface_y"], a["cx"], a["cz"], scene["origin"]
+    )
     print(
         f"กล้องอยู่ y={ground + int(a['eye'])} (ผิวดิน y={ground}, "
         f"ความสูงจริง {elev_m:.0f} m)"
     )
+    if site["rise"] > max(8, int(a["eye"]) + 4):
+        print(
+            "[เตือน] จุดกล้องอยู่ชิดผาสูง: "
+            f"terrain รอบ {site['radius']} บล็อกสูงกว่ากล้อง "
+            f"{site['rise']} บล็อก (local relief {site['relief']}). "
+            "ผาจะบังภาพตาม geometry จริง; ย้าย --at ไปฝั่งที่โล่งก่อนใช้ภาพ "
+            "เป็น visual evidence"
+        )
 
     yaws = ([a["yaw"] + d for d in (0, 90, 180, 270)]
             if a["panorama"] else [a["yaw"]])

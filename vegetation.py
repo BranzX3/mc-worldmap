@@ -236,7 +236,28 @@ FLOWERS_ALPINE = ["oxeye_daisy", "azure_bluet", "dandelion", "cornflower"]
 FLOWERS_TALL = ["rose_bush", "peony", "lilac", "sunflower"]
 
 
-def meadow_zone(damp, slope, elev):
+def meadow_disturbance(damp, slope, elev, field):
+    """Return 0..1 grazing/trampling pressure for meadow terrain.
+
+    ``field`` supplies coherent world-space patches.  Terrain suitability then
+    suppresses disturbance on wet ground, steep slopes and remote high alpine
+    terrain, so the result cannot become an arbitrary noise overlay.
+    """
+    damp, slope, elev, field = np.broadcast_arrays(
+        np.asarray(damp, dtype=np.float32),
+        np.asarray(slope, dtype=np.float32),
+        np.asarray(elev, dtype=np.float32),
+        np.asarray(field, dtype=np.float32),
+    )
+    dry = np.clip((0.72 - damp) / 0.52, 0.0, 1.0)
+    flat = np.clip((24.0 - slope) / 18.0, 0.0, 1.0)
+    accessible = np.clip((2200.0 - elev) / 900.0, 0.0, 1.0)
+    suitability = dry * flat * accessible
+    result = np.clip(field * (0.22 + 0.78 * suitability), 0.0, 1.0)
+    return float(result) if result.ndim == 0 else result
+
+
+def meadow_zone(damp, slope, elev, disturbance=1.0):
     """แยกทุ่งเป็น wet meadow, pasture หรือ meadow กลางจากสภาพพื้นที่
 
     ค่าความชื้น/ความชันมาจาก ``surface.decor_fields`` ซึ่งต่อเนื่องข้าม tile
@@ -247,9 +268,33 @@ def meadow_zone(damp, slope, elev):
     elev = float(elev)
     if damp >= 0.72:
         return "meadow_wet"
-    if damp <= 0.38 and slope <= 14.0 and elev < 1800.0:
+    pressure = meadow_disturbance(damp, slope, elev, disturbance)
+    if pressure >= 0.42:
         return "pasture"
     return "meadow"
+
+
+def canopy_floor_block(distance, radius, damp, conifer, roll):
+    """Choose a forest-floor block tied to one successfully placed tree.
+
+    The probability fades at the canopy edge.  Conifers favour podzol, damp
+    pockets favour moss, and the immediate trunk base may expose rooted dirt.
+    ``None`` leaves the existing classified forest floor untouched.
+    """
+    radius = max(1.0, float(radius))
+    distance = max(0.0, float(distance))
+    strength = np.clip(1.0 - distance / (radius + 0.75), 0.0, 1.0)
+    cover = 0.20 + 0.66 * strength
+    roll = float(roll)
+    if roll >= cover:
+        return None
+    if distance <= 1.05 and roll < 0.13 * cover:
+        return "rooted"
+    if float(damp) >= 0.64 and roll < (0.26 + 0.18 * strength) * cover:
+        return "moss"
+    if conifer:
+        return "podzol" if roll < 0.82 * cover else "coarse"
+    return "dirt" if roll < 0.72 * cover else "podzol"
 
 
 def ground_cover(zone, r, patch_a, patch_b, patch_c, damp, dense, elev):
@@ -419,4 +464,56 @@ def boulder(rng, mossy):
                 if dx * dx + dy * dy + dz * dz > rad * rad + rad:
                     continue
                 out.append((dx, dy, dz, pal[int(rng.integers(len(pal)))], {}))
+    return out
+
+
+_EPIPHYTE_SIDES = (
+    (1, 0, "west"),
+    (-1, 0, "east"),
+    (0, 1, "north"),
+    (0, -1, "south"),
+)
+
+
+def trunk_epiphytes(trunks, damp, age, rng):
+    """Place sparse vine/lichen faces beside lower trunk blocks.
+
+    ``trunks`` contains relative ``(x, y, z)`` log coordinates.  The returned
+    tuples use the same relative origin and include a complete block-state
+    dictionary. Epiphytes are intentionally absent from dry stands and become
+    more likely in damp old-growth, where stable bark has had time to host
+    mosses and lichens.
+    """
+    damp = float(np.clip(damp, 0.0, 1.0))
+    age = float(np.clip(age, 0.0, 1.0))
+    if damp < 0.55:
+        return []
+    # Keep the signal legible without turning every trunk into a vine wall.
+    # At damp=0.85 this yields roughly 0.4 faces/tree in young stands and
+    # 1.0 in old stands across eight eligible trunk blocks.
+    chance = 0.025 + 0.12 * damp * (0.35 + 0.65 * age)
+    out = []
+    occupied = set()
+    for dx, dy, dz in sorted(set(trunks), key=lambda p: (p[1], p[0], p[2])):
+        # Keep the foot clear and stop before dense crowns/branches dominate.
+        if dy < 1 or dy > 8 or rng.random() >= chance:
+            continue
+        sx, sz, face = _EPIPHYTE_SIDES[int(rng.integers(4))]
+        position = (dx + sx, dy, dz + sz)
+        if position in occupied:
+            continue
+        occupied.add(position)
+        lichen = damp > 0.74 and age > 0.52 and rng.random() < 0.34
+        name = "glow_lichen" if lichen else "vine"
+        props = {
+            "north": "false", "south": "false",
+            "east": "false", "west": "false",
+        }
+        props[face] = "true"
+        if name == "vine":
+            props["up"] = "false"
+        else:
+            props.update({"up": "false", "down": "false",
+                          "waterlogged": "false"})
+        out.append((*position, name, props))
     return out

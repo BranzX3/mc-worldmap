@@ -1,7 +1,19 @@
-# จุดที่ต้องไปตรวจในเกม — 2026-08-13
+# จุดที่ต้องตรวจ world readback — 2026-09-09
 
-patch ขึ้นรูปไว้แล้วใน `golden_patches/` ครบทุกจุด **ไม่ต้องรัน hydrology_shape ซ้ำ**
-แต่ละจุดใช้สองคำสั่ง (build ก่อน paint เสมอ) กรอบ hydrology 384 แต่เขียนจริง 256
+ขั้นตอนทดลองปัจจุบันและเซฟที่เตรียมไว้ดู [PAINT_TEST.md](PAINT_TEST.md)
+รายการด้านล่างเก็บไว้เป็นประวัติการตรวจ
+
+> **บันทึกย้อนหลัง ไม่ใช่คิวงานหรือผลล่าสุด (ทบทวน 2026-09-10):** ตัวเลขและ
+> ลำดับด้านล่างมาจากหลายรอบ เช่น wild_canyon 66.9% เก่ากว่า `bank_final`
+> ที่ได้ canyon excess 0% อย่าใช้จัดลำดับการแก้ใหม่ ดูคิวปัจจุบันใน
+> [IMMERSION_ROADMAP.md](IMMERSION_ROADMAP.md) และบันทึกผลตาม
+> [IMMERSION_REVIEW.md](IMMERSION_REVIEW.md) ชื่อไฟล์ patch เดิมไม่ยืนยัน
+> ว่าเป็น product ของ code ปัจจุบัน ต้องตรวจ fingerprint/สร้าง baseline ก่อนใช้
+
+patch ที่ใช้ตรวจรอบล่าสุดอยู่ใน `golden_patches/` (มี fingerprint กำกับทุกไฟล์)
+ใช้ซ้ำได้เฉพาะเมื่อ fingerprint ตรงกับ candidate; ต้องมีสิทธิ์อ่าน/เขียน save และติดตั้ง
+`scipy` กับ `amulet-core` ก่อน แต่ละจุดใช้สองคำสั่ง (build ก่อน paint เสมอ)
+กรอบ hydrology 384 แต่เขียนจริง 256
 
 รูปแบบคำสั่ง:
 
@@ -9,6 +21,10 @@ patch ขึ้นรูปไว้แล้วใน `golden_patches/` คร�
 python build_terrain.py --patch <X> <Z> 256 --hydrology-patch golden_patches/hydrology_patch_x<X>_z<Z>_384.npz
 python paint_surface.py --patch <X> <Z> 256 --hydrology-patch golden_patches/hydrology_patch_x<X>_z<Z>_384.npz
 ```
+
+ก่อนเริ่มต้องปิดเกม/ตัวแก้โลกให้หมด และยืนยันว่า `world_session_locked()` คืน
+`False`; ห้ามลบ `session.lock` เพื่อข้าม safety gate ถ้ายังตรวจ owner ไม่ได้
+หลัง paint ให้ save/reload แล้วอ่าน region กลับด้วย verifier ก่อนดูภาพระดับสายตา
 
 ---
 

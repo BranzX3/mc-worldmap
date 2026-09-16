@@ -85,6 +85,26 @@ class QuantizeTests(unittest.TestCase):
             T.terrace_width(plain, continuous),
         )
 
+    def test_arete_feature_is_forwarded_only_when_requested(self):
+        n = 65
+        x = np.arange(n, dtype=np.float32)
+        profile = 2310.0 - np.abs(x - n // 2) * 6.0
+        elev = np.repeat(profile[None, :], n, axis=0)
+        meta = {"elev_min_m": 0.0, "elev_max_m": 3000.0}
+
+        plain, _ = T.quantize(
+            elev, meta=meta, amplitude=0, clean=False,
+            relief_features=(),
+        )
+        shaped, _ = T.quantize(
+            elev, meta=meta, amplitude=0, clean=False,
+            relief_features=("arete",),
+        )
+
+        center = n // 2
+        self.assertGreater(int(shaped[0, center]), int(plain[0, center]))
+        np.testing.assert_array_equal(shaped[:, :8], plain[:, :8])
+
 
 class DespeckleTests(unittest.TestCase):
     def test_isolated_spike_is_removed(self):

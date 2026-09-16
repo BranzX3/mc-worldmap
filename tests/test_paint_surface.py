@@ -885,6 +885,87 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertEqual(int(chunk.blocks[9, 61, 0]), painter.snow_layers[3])
         self.assertIn(int(chunk.blocks[13, 59, 0]), painter.sub_soil)
 
+    def test_glacier_detail_reaches_dense_paint_materials(self):
+        painter = _Painter()
+        n = 16
+        y = np.full((n, n), 80, dtype=np.int32)
+        elev = np.full((n, n), 2600.0, dtype=np.float32)
+        classes = np.full((n, n), S.IDX["grass"], dtype=np.uint8)
+        classes[4:12, 4:12] = S.IDX["ice"]
+        landcover = np.full((n, n), S.LC["grass"], dtype=np.uint8)
+        landcover[4:12, 4:12] = S.LC["glacier"]
+        snow = np.zeros((n, n), dtype=np.uint8)
+        soil = classes == S.IDX["grass"]
+        depth = np.zeros((n, n), dtype=np.uint8)
+        shore = np.zeros((n, n), dtype=bool)
+        shore_probability = np.zeros((n, n), dtype=np.float32)
+        decor = {
+            "patch_a": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_b": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_c": np.zeros((n, n), dtype=np.float32),
+            "damp": np.full((n, n), 0.2, dtype=np.float32),
+            "slope": np.full((n, n), 20.0, dtype=np.float32),
+        }
+
+        dense = P.prepare_dense_fields(
+            painter, y, elev, classes, snow, soil, depth,
+            shore, shore_probability, decor,
+            0, n, 0, n, 0, 0,
+            landcover=landcover,
+            glacier_detail=True,
+        )
+
+        self.assertTrue(dense["glacier_crevasse"].any())
+        self.assertTrue(
+            (dense["ice_top"][dense["glacier_crevasse"]] == painter.ice_core).all()
+        )
+        self.assertTrue(dense["glacier_moraine"].any())
+        moraine_ids = {
+            painter.surface_ids[S.IDX[name]]
+            for name in ("gravel", "cobble", "stone")
+        }
+        self.assertTrue(set(np.unique(
+            dense["surface_id"][dense["glacier_moraine"]]
+        )).issubset(moraine_ids))
+        self.assertFalse(dense["soil"][dense["glacier_moraine"]].any())
+
+    def test_meadow_disturbance_paints_sparse_trampled_ground(self):
+        painter = _Painter()
+        n = 64
+        y = np.full((n, n), 60, dtype=np.int32)
+        elev = np.full((n, n), 700.0, dtype=np.float32)
+        classes = np.full((n, n), S.IDX["grass"], dtype=np.uint8)
+        snow = np.zeros((n, n), dtype=np.uint8)
+        soil = np.ones((n, n), dtype=bool)
+        depth = np.zeros((n, n), dtype=np.uint8)
+        shore = np.zeros((n, n), dtype=bool)
+        shore_probability = np.zeros((n, n), dtype=np.float32)
+        decor = {
+            "patch_a": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_b": np.full((n, n), 0.5, dtype=np.float32),
+            "patch_c": np.full((n, n), 0.5, dtype=np.float32),
+            "damp": np.full((n, n), 0.2, dtype=np.float32),
+            "slope": np.full((n, n), 8.0, dtype=np.float32),
+            "disturbance": np.full((n, n), 1.0, dtype=np.float32),
+        }
+
+        dense = P.prepare_dense_fields(
+            painter, y, elev, classes, snow, soil, depth,
+            shore, shore_probability, decor,
+            0, n, 0, n, 0, 0,
+        )
+
+        count = int(dense["trampled"].sum())
+        self.assertGreater(count, 0)
+        self.assertLess(count, n * n // 4)
+        expected = {
+            painter.surface_ids[S.IDX["coarse"]],
+            painter.surface_ids[S.IDX["dirt"]],
+        }
+        self.assertTrue(set(np.unique(
+            dense["surface_id"][dense["trampled"]]
+        )).issubset(expected))
+
     def test_dense_chunk_paints_only_declared_waterfall_curtain(self):
         painter = _Painter()
         n = 16
@@ -1213,6 +1294,32 @@ class PaintSurfaceTests(unittest.TestCase):
         self.assertEqual(int(chunk.blocks[2, 65, 3]), 0)
         self.assertEqual(buffer.flush(), 1)
         self.assertEqual(int(chunk.blocks[2, 65, 3]), 900)
+
+    def test_soft_buffer_checkpoint_rolls_back_new_object(self):
+        painter = _Painter()
+        chunk = _Chunk()
+        buffer = P.SoftBlockBuffer(painter, lambda _cx, _cz: chunk)
+
+        self.assertTrue(buffer.set(1, 65, 3, 899))
+        checkpoint = buffer.checkpoint()
+        self.assertTrue(buffer.set(2, 65, 3, 900))
+        self.assertTrue(buffer.set(4, 65, 3, 901))
+        buffer.rollback(checkpoint)
+
+        checkpoint = buffer.checkpoint()
+        self.assertTrue(buffer.set(2, 65, 3, 900))
+        buffer.commit(checkpoint)
+        self.assertEqual(buffer.flush(), 1)
+        self.assertEqual(int(chunk.blocks[1, 65, 3]), 899)
+        self.assertEqual(int(chunk.blocks[2, 65, 3]), 900)
+        self.assertEqual(int(chunk.blocks[4, 65, 3]), 0)
+
+        fresh = P.SoftBlockBuffer(painter, lambda _cx, _cz: chunk)
+        checkpoint = fresh.checkpoint()
+        self.assertTrue(fresh.set(6, 65, 3, 902))
+        fresh.rollback(checkpoint)
+        self.assertEqual(fresh.flush(), 0)
+        self.assertEqual(int(chunk.blocks[6, 65, 3]), 0)
 
     def _vegetation_clear_fixture(self, water_column=False):
         """dense fields ที่ผิวดินอยู่ y=60 ทั้งแปลง — ใช้ทดสอบการล้างพืช"""

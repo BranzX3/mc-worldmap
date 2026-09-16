@@ -135,6 +135,69 @@ class SectionShapeTests(unittest.TestCase):
 
         self.assertEqual(int(got[5, 4]), 105)
 
+    def test_bank_smoothing_repairs_a_seal_notch_without_raising_dem_cells(self):
+        """คืน notch ที่ seal ยกฝั่งหนึ่ง โดยไม่เพิ่มระดับเกิน DEM+1"""
+        shape = (12, 12)
+        reference = np.full(shape, 102, dtype=np.int32)
+        terrain = reference.copy()
+        water = np.zeros(shape, dtype=bool)
+        water[:, 5] = True
+        surface = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        surface[5, 5] = 104
+        surface[6, 5] = 102
+        terrain[5, 4] = 104  # seal-lifted bank
+        terrain[6, 4] = 102  # adjacent DEM-level bank
+        waterfall_top = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        lip = np.zeros(shape, dtype=bool)
+
+        got = CS.smooth_walkable_banks(
+            terrain, reference, water, surface, waterfall_top, lip,
+        )
+
+        self.assertEqual(int(got[6, 4]), 103)
+        self.assertLessEqual(int(got[6, 4]), int(reference[6, 4]) + 1)
+        self.assertTrue(np.array_equal(got[water], terrain[water]))
+
+    def test_bank_smoothing_restores_excavation_below_a_water_pinned_bank(self):
+        # hill_junction: a one-block seal lift beside a two-block bank cut
+        # produced a three-block jump on a flat DEM. The old notch repair
+        # only recognized a neighbour raised at least two blocks.
+        shape = (12, 12)
+        reference = np.full(shape, 199, dtype=np.int32)
+        terrain = reference.copy()
+        terrain[:, 4] = 197
+        terrain[5, 4] = 200
+        water = np.zeros(shape, dtype=bool)
+        water[:, 5] = True
+        surface = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        surface[water] = 197
+        surface[5, 5] = 200
+        top = np.full(shape, np.iinfo(np.int16).min, dtype=np.int32)
+        lip = np.zeros(shape, dtype=bool)
+        got = CS.smooth_walkable_banks(terrain, reference, water, surface, top, lip)
+        self.assertEqual(int(got[6, 4]), 199)
+        self.assertLessEqual(int(np.abs(np.diff(got[:, 4])).max()), 1)
+        self.assertTrue((got[terrain < reference] <= reference[terrain < reference]).all())
+        np.testing.assert_array_equal(got[water], terrain[water])
+
+    def test_one_block_seal_does_not_amplify_a_natural_four_block_bank_step(self):
+        reference = np.full((12, 12), 146, dtype=np.int32)
+        reference[:6] = 150
+        terrain = reference.copy()
+        terrain[5, 4] = 151
+        water = np.zeros(reference.shape, dtype=bool)
+        water[:, 5] = True
+        surface = np.full(reference.shape, np.iinfo(np.int16).min, dtype=np.int32)
+        surface[water] = reference[water]
+        surface[6:, 5] = 144
+        surface[5, 5] = 151
+        top = np.full(reference.shape, np.iinfo(np.int16).min, dtype=np.int32)
+        got = CS.smooth_walkable_banks(terrain, reference, water, surface, top,
+                                       np.zeros(reference.shape, dtype=bool))
+        self.assertLessEqual(int(got[5, 4] - got[6, 4]), 4)
+        self.assertLessEqual(int(got[6, 4]), 147)
+        np.testing.assert_array_equal(got[water], terrain[water])
+
     def test_stamping_never_digs_below_the_bed_it_declared(self):
         """ความลึกที่ประกาศคือความลึกที่ได้ ไม่มีกลไกไหนขุดต่อ"""
         terrain = np.full((24, 24), 100, dtype=np.int32)

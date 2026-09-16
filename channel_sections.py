@@ -60,6 +60,10 @@ WALKABLE_BANK_STEP = 1
 # ต่อ cell (เท่ากับ BANK_MAX_CUT); หน้าผาจริงที่สูงกว่านั้นต้องคงไว้เป็น
 # feature และ waterfall จะถูกเว้นด้วย mask แยกต่างหาก
 BANK_SMOOTH_MAX_CUT = 6
+# notch ที่เกิดจาก cell หนึ่งถูก seal ยกขึ้น แต่อีก cell ยังอยู่ DEM เดิม
+# แก้ได้ด้วยการเติมฝั่งต่ำกลับเพียง 1 บล็อกเหนือ reference — จำกัดแคบ ๆ เพื่อ
+# ไม่เปลี่ยนภูเขาเดิมให้เป็นคันดิน และ cap ด้วยระดับน้ำ+ชายฝั่ง 1 บล็อก
+BANK_SMOOTH_MAX_RAISE = 1
 # ก้นน้ำลึกสุดกี่บล็อกใต้ผิวน้ำ (ที่ 4 m/บล็อก ลึกกว่านี้มองไม่เห็นก้นแล้ว)
 MAX_BED_DEPTH = 4
 # ยกพื้นกันน้ำรั่วได้มากสุดกี่บล็อก
@@ -567,8 +571,8 @@ def smooth_walkable_banks(
     บล็อกติดกัน ทั้งที่มันไม่ใช่ waterfall feature วิธีนี้เป็น post-pass เล็ก ๆ:
 
     * แตะเฉพาะ dry bank ที่ปีนเกิน 1 บล็อก
-    * ลดลงเข้าหา percentile ต่ำของ bank เพื่อนบ้าน cardinal เท่านั้น — ไม่ยก
-      cell ใดขึ้น จึงไม่สร้างคันดินใหม่
+    * ลดลงเข้าหา percentile ต่ำของ bank เพื่อนบ้าน cardinal เป็นหลัก — มีเพียง
+      notch ที่เกิดจาก seal เท่านั้นที่คืนระดับได้ไม่เกิน DEM+1 จึงไม่สร้างคันดินใหม่
     * จำกัดการตัดรวมจาก product เดิมไม่เกิน ``BANK_SMOOTH_MAX_CUT``
     * เว้น cell รอบ `waterfall_top/lip` เพื่อไม่ทำลาย feature ที่ประกาศไว้
 
@@ -662,6 +666,75 @@ def smooth_walkable_banks(
             if wet_neighbours:
                 target = max(target, max(wet_neighbours))
             proposed[z, x] = target
+        if np.array_equal(proposed, terrain):
+            break
+        terrain = proposed
+
+    # A seal can legitimately lift one bank cell to the water level while its
+    # lateral neighbour remains at the DEM.  Lowering cannot remove that
+    # notch because the high cell is pinned by the water surface.  Restore a
+    # tiny amount on the low side only when the high neighbour is itself
+    # visibly lifted by hydrology.  This keeps natural DEM steps untouched and
+    # prevents the post-pass from creating a new raised berm.
+    for _ in range(max(1, int(passes))):
+        bank, climb = bank_and_climb(terrain)
+        candidate = bank & (climb > WALKABLE_BANK_STEP) & ~near_feature
+        if not candidate.any():
+            break
+        proposed = terrain.copy()
+        changed = False
+        for z, x in zip(*np.where(candidate)):
+            higher = []
+            for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                zz, xx = int(z) + dz, int(x) + dx
+                if (
+                    0 <= zz < terrain.shape[0]
+                    and 0 <= xx < terrain.shape[1]
+                    and bank[zz, xx]
+                    and terrain[zz, xx] > terrain[z, x]
+                    and terrain[zz, xx] > reference[zz, xx]
+                ):
+                    higher.append(int(terrain[zz, xx]))
+            if not higher:
+                continue
+            target = min(
+                min(higher) - 1,
+                int(reference[z, x]) + BANK_SMOOTH_MAX_RAISE,
+            )
+            # The DEM+1 ceiling above bounds this repair. A second ceiling
+            # at the *lowest* adjacent water level prevented even one block
+            # of restoration on naturally steep banks (real x5771,z5355:
+            # DEM146, water144, neighbouring sealed bank151). Such banks
+            # already stand above that water; they are not a new flat berm.
+            if target > terrain[z, x]:
+                proposed[z, x] = target
+                changed = True
+        if not changed:
+            break
+        terrain = proposed
+
+    # Lowering cannot smooth a bank whose high end is pinned by neighbouring
+    # water. It can instead excavate the low end and manufacture a stair-step
+    # on a nearly flat DEM (e.g. hill_junction x3492,z320: 200 next to 197,
+    # both originally 199). Restore that excavation towards the high end,
+    # never above the original DEM. This is separate from the seal-notch
+    # allowance above: no extra raised berm and no change to water/features.
+    for _ in range(max(1, int(passes))):
+        bank, climb = bank_and_climb(terrain)
+        candidate = (
+            bank & (climb > WALKABLE_BANK_STEP) & ~near_feature
+            & (terrain < reference)
+        )
+        if not candidate.any():
+            break
+        proposed = terrain.copy()
+        for z, x in zip(*np.where(candidate)):
+            target = int(terrain[z, x])
+            for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                zz, xx = int(z) + dz, int(x) + dx
+                if 0 <= zz < terrain.shape[0] and 0 <= xx < terrain.shape[1] and bank[zz, xx]:
+                    target = max(target, int(terrain[zz, xx]) - WALKABLE_BANK_STEP)
+            proposed[z, x] = min(target, int(reference[z, x]))
         if np.array_equal(proposed, terrain):
             break
         terrain = proposed

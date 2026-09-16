@@ -1,0 +1,450 @@
+{
+  "prototype_stream": {
+    "large_bank_cells": 10,
+    "unassociated": 0,
+    "points": [
+      {
+        "x": 6164,
+        "z": 6067,
+        "height": 95,
+        "dem": 94,
+        "climb": 9,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6160,
+        "z": 6068,
+        "height": 99,
+        "dem": 100,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6164,
+        "z": 6068,
+        "height": 104,
+        "dem": 94,
+        "climb": 9,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6160,
+        "z": 6069,
+        "height": 105,
+        "dem": 109,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6165,
+        "z": 6069,
+        "height": 104,
+        "dem": 101,
+        "climb": 10,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6165,
+        "z": 6070,
+        "height": 114,
+        "dem": 104,
+        "climb": 10,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6168,
+        "z": 6080,
+        "height": 140,
+        "dem": 137,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6168,
+        "z": 6081,
+        "height": 146,
+        "dem": 140,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6097,
+        "z": 6082,
+        "height": 106,
+        "dem": 105,
+        "climb": 7,
+        "near_groups": [
+          4
+        ],
+        "complete_dem_supported_groups": [
+          4
+        ]
+      },
+      {
+        "x": 6097,
+        "z": 6083,
+        "height": 113,
+        "dem": 104,
+        "climb": 7,
+        "near_groups": [
+          4
+        ],
+        "complete_dem_supported_groups": [
+          4
+        ]
+      }
+    ],
+    "feature_groups": {
+      "3": {
+        "lip_cells": 28,
+        "curtain_cells": 25,
+        "pool_cells": 23,
+        "dem_supported_lip_cells": 22
+      },
+      "4": {
+        "lip_cells": 1,
+        "curtain_cells": 1,
+        "pool_cells": 2,
+        "dem_supported_lip_cells": 1
+      }
+    }
+  },
+  "lake_corridor": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "player_liked": {
+    "large_bank_cells": 10,
+    "unassociated": 0,
+    "points": [
+      {
+        "x": 6164,
+        "z": 6067,
+        "height": 95,
+        "dem": 94,
+        "climb": 9,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6160,
+        "z": 6068,
+        "height": 99,
+        "dem": 100,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6164,
+        "z": 6068,
+        "height": 104,
+        "dem": 94,
+        "climb": 9,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6160,
+        "z": 6069,
+        "height": 105,
+        "dem": 109,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6165,
+        "z": 6069,
+        "height": 104,
+        "dem": 101,
+        "climb": 10,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6165,
+        "z": 6070,
+        "height": 114,
+        "dem": 104,
+        "climb": 10,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6168,
+        "z": 6080,
+        "height": 140,
+        "dem": 137,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6168,
+        "z": 6081,
+        "height": 146,
+        "dem": 140,
+        "climb": 6,
+        "near_groups": [
+          3
+        ],
+        "complete_dem_supported_groups": [
+          3
+        ]
+      },
+      {
+        "x": 6097,
+        "z": 6082,
+        "height": 106,
+        "dem": 105,
+        "climb": 7,
+        "near_groups": [
+          4
+        ],
+        "complete_dem_supported_groups": [
+          4
+        ]
+      },
+      {
+        "x": 6097,
+        "z": 6083,
+        "height": 113,
+        "dem": 104,
+        "climb": 7,
+        "near_groups": [
+          4
+        ],
+        "complete_dem_supported_groups": [
+          4
+        ]
+      }
+    ],
+    "feature_groups": {
+      "3": {
+        "lip_cells": 28,
+        "curtain_cells": 25,
+        "pool_cells": 23,
+        "dem_supported_lip_cells": 22
+      },
+      "4": {
+        "lip_cells": 1,
+        "curtain_cells": 1,
+        "pool_cells": 2,
+        "dem_supported_lip_cells": 1
+      }
+    }
+  },
+  "floodplain_berm": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "lake_mouth": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "cliff_bedding": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "steep_stream": {
+    "large_bank_cells": 4,
+    "unassociated": 0,
+    "points": [
+      {
+        "x": 5808,
+        "z": 5369,
+        "height": 115,
+        "dem": 111,
+        "climb": 5,
+        "near_groups": [
+          18
+        ],
+        "complete_dem_supported_groups": [
+          18
+        ]
+      },
+      {
+        "x": 5809,
+        "z": 5369,
+        "height": 110,
+        "dem": 109,
+        "climb": 5,
+        "near_groups": [
+          18
+        ],
+        "complete_dem_supported_groups": [
+          18
+        ]
+      },
+      {
+        "x": 5808,
+        "z": 5371,
+        "height": 120,
+        "dem": 114,
+        "climb": 9,
+        "near_groups": [
+          18
+        ],
+        "complete_dem_supported_groups": [
+          18
+        ]
+      },
+      {
+        "x": 5809,
+        "z": 5371,
+        "height": 111,
+        "dem": 110,
+        "climb": 9,
+        "near_groups": [
+          18
+        ],
+        "complete_dem_supported_groups": [
+          18
+        ]
+      }
+    ],
+    "feature_groups": {
+      "18": {
+        "lip_cells": 2,
+        "curtain_cells": 2,
+        "pool_cells": 3,
+        "dem_supported_lip_cells": 2
+      }
+    }
+  },
+  "hill_junction": {
+    "large_bank_cells": 2,
+    "unassociated": 0,
+    "points": [
+      {
+        "x": 3276,
+        "z": 583,
+        "height": 225,
+        "dem": 223,
+        "climb": 5,
+        "near_groups": [
+          9
+        ],
+        "complete_dem_supported_groups": [
+          9
+        ]
+      },
+      {
+        "x": 3277,
+        "z": 583,
+        "height": 220,
+        "dem": 219,
+        "climb": 5,
+        "near_groups": [
+          9
+        ],
+        "complete_dem_supported_groups": [
+          9
+        ]
+      }
+    ],
+    "feature_groups": {
+      "9": {
+        "lip_cells": 1,
+        "curtain_cells": 1,
+        "pool_cells": 2,
+        "dem_supported_lip_cells": 1
+      }
+    }
+  },
+  "wild_canyon": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "wild_canyon_b": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  },
+  "flat_river": {
+    "large_bank_cells": 0,
+    "unassociated": 0,
+    "points": [],
+    "feature_groups": {}
+  }
+}

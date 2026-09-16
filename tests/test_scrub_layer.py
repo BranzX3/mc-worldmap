@@ -67,6 +67,28 @@ class ScrubGroundTests(unittest.TestCase):
         self.assertFalse(mask[:, 30:34].any())
         self.assertFalse(mask[:, :27].any())
 
+    def test_water_blocks_ecotone_propagation_to_the_far_shore(self):
+        landcover = np.full((9, 9), S.LC["grass"], dtype=np.uint8)
+        landcover[4, 3] = S.LC["forest"]
+        water = np.zeros(landcover.shape, dtype=bool)
+        water[4, 4] = True
+
+        mask = S.forest_ecotone_mask(landcover, water=water, width=2)
+
+        self.assertFalse(mask[4, 5])
+        self.assertFalse(mask[4, 4])
+
+    def test_forest_interior_factor_ramps_inward(self):
+        landcover = np.full((15, 15), S.LC["grass"], dtype=np.uint8)
+        landcover[2:13, 2:13] = S.LC["forest"]
+
+        factor = S.forest_interior_factor(landcover, width=4)
+
+        self.assertEqual(float(factor[1, 7]), 0.0)
+        self.assertAlmostEqual(float(factor[2, 7]), 0.35, places=5)
+        self.assertGreater(float(factor[4, 7]), float(factor[2, 7]))
+        self.assertAlmostEqual(float(factor[7, 7]), 1.0, places=5)
+
     def test_glacier_windows_only_appear_on_exposed_terrain(self):
         shape = (8, 8)
         glacier = np.full(shape, S.LC["glacier"], dtype=np.uint8)
@@ -80,6 +102,60 @@ class ScrubGroundTests(unittest.TestCase):
         mask = S.glacier_rock_window_mask(glacier, slope, curvature, roll)
         self.assertTrue(mask[:, 4:].all())
         self.assertFalse(mask[:, :4].any())
+
+    def test_crevasses_require_both_glacier_and_stressed_ice(self):
+        shape = (12, 12)
+        landcover = np.full(shape, S.LC["grass"], dtype=np.uint8)
+        landcover[:, 3:9] = S.LC["glacier"]
+        slope = np.full(shape, 20.0, dtype=np.float32)
+        field_a = np.full(shape, 0.5, dtype=np.float32)
+        field_b = np.full(shape, 0.5, dtype=np.float32)
+        roll = np.zeros(shape, dtype=np.float32)
+
+        mask = S.glacier_crevasse_mask(
+            landcover, slope, field_a, field_b, roll
+        )
+
+        self.assertTrue(mask[:, 3:9].all())
+        self.assertFalse(mask[:, :3].any())
+        slope[:] = 5.0
+        self.assertFalse(S.glacier_crevasse_mask(
+            landcover, slope, field_a, field_b, roll
+        ).any())
+
+    def test_crevasses_follow_a_thin_noise_contour(self):
+        shape = (8, 8)
+        landcover = np.full(shape, S.LC["glacier"], dtype=np.uint8)
+        slope = np.full(shape, 20.0, dtype=np.float32)
+        field_b = np.full(shape, 0.5, dtype=np.float32)
+        roll = np.zeros(shape, dtype=np.float32)
+
+        far_from_contour = np.full(shape, 0.8, dtype=np.float32)
+        self.assertFalse(S.glacier_crevasse_mask(
+            landcover, slope, far_from_contour, field_b, roll
+        ).any())
+
+        crossing = np.linspace(0.35, 0.65, shape[0], dtype=np.float32)[:, None]
+        crossing = np.broadcast_to(crossing, shape)
+        mask = S.glacier_crevasse_mask(
+            landcover, slope, crossing, field_b, roll
+        )
+        self.assertTrue(mask.any())
+        self.assertLess(int(mask.sum()), landcover.size // 2)
+
+    def test_moraine_stays_outside_ice_and_does_not_cross_water(self):
+        shape = (11, 11)
+        landcover = np.full(shape, S.LC["grass"], dtype=np.uint8)
+        landcover[5, 5] = S.LC["glacier"]
+        landcover[5, 6] = S.LC["water"]
+        roll = np.zeros(shape, dtype=np.float32)
+
+        mask = S.glacier_moraine_mask(landcover, roll, width=2)
+
+        self.assertFalse(mask[5, 5])
+        self.assertFalse(mask[5, 6])
+        self.assertTrue(mask[5, 4])
+        self.assertFalse(mask[5, 7], "moraine propagated through water")
 
 
 class ScrubVegetationTests(unittest.TestCase):

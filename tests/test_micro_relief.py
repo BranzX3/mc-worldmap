@@ -70,6 +70,16 @@ class TalusTests(unittest.TestCase):
         delta = M.talus_apron(h, M.slope_blocks(h))
         self.assertLess(float(np.abs(delta).max()), 1e-5)
 
+    def test_talus_does_not_wrap_from_one_tile_edge_to_the_other(self):
+        height = np.zeros((8, 16), dtype=np.float32)
+        height[:, -1] = 10.0
+        source = np.zeros_like(height)
+        source[:, -1] = 1.0
+
+        propagated = M._propagate_downhill(source, height, steps=1, decay=0.8)
+
+        self.assertEqual(float(propagated[:, 0].max()), 0.0)
+
 
 class DolineTests(unittest.TestCase):
     def test_dolines_only_dig_downward(self):
@@ -90,6 +100,51 @@ class DolineTests(unittest.TestCase):
         delta = M.karst_dolines(h, M.slope_blocks(h), elev)
         self.assertLess(float(np.abs(delta).max()), 1e-5)
 
+
+class AreteTests(unittest.TestCase):
+    @staticmethod
+    def ridge(size=65):
+        x = np.arange(size, dtype=np.float32)
+        profile = 80.0 - np.abs(x - size // 2) * 1.1
+        return np.repeat(profile[None, :], size, axis=0)
+
+    def test_high_convex_ridge_is_sharpened_at_crest(self):
+        height = self.ridge()
+        elev = np.full(height.shape, 2300.0, dtype=np.float32)
+        delta = M.ridge_aretes(height, M.slope_blocks(height), elev)
+
+        center = height.shape[1] // 2
+        self.assertGreater(float(delta[:, center].mean()), 0.5)
+        self.assertLess(float(delta[:, :8].max()), 1e-5)
+        self.assertLessEqual(float(delta.max()), M.ARETE_HEIGHT)
+
+    def test_valley_is_never_raised_as_a_ridge(self):
+        height = -self.ridge()
+        elev = np.full(height.shape, 2300.0, dtype=np.float32)
+        delta = M.ridge_aretes(height, M.slope_blocks(height), elev)
+        self.assertLess(float(np.abs(delta).max()), 1e-5)
+
+    def test_low_ridge_is_untouched(self):
+        height = self.ridge()
+        elev = np.full(height.shape, 1200.0, dtype=np.float32)
+        delta = M.ridge_aretes(height, M.slope_blocks(height), elev)
+        self.assertLess(float(np.abs(delta).max()), 1e-5)
+
+    def test_arete_is_opt_in_and_respects_protection(self):
+        height = self.ridge()
+        elev = np.full(height.shape, 2300.0, dtype=np.float32)
+        protect = np.zeros(height.shape, dtype=bool)
+        protect[:, height.shape[1] // 2] = True
+
+        unchanged, stats = M.apply(height, elev, features=())
+        shaped, shaped_stats = M.apply(
+            height, elev, protect=protect, features=("arete",)
+        )
+
+        np.testing.assert_allclose(unchanged, height)
+        self.assertEqual(stats, {})
+        np.testing.assert_allclose(shaped[protect], height[protect])
+        self.assertEqual(set(shaped_stats), {"arete"})
 
 class ApplyTests(unittest.TestCase):
     def test_protected_cells_never_move(self):

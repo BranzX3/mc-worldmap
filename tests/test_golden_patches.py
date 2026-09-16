@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 
 import golden_patches as G
+import render_view as R
 from hydrology_shape import UNRESOLVED
 
 
@@ -328,6 +329,10 @@ class GoldenPatchMetricTests(unittest.TestCase):
         )
         self.assertTrue(seen, "กล้องไม่ได้หันไปทางน้ำ")
         self.assertLessEqual(pitch, 2.0)
+        site = R.camera_site_diagnostics(
+            patch["terrain_y"].T, cx, cz, (0, 0), radius=6
+        )
+        self.assertLessEqual(site["rise"], 8, "กล้องยืนชิดผาทั้งที่มีฝั่งโล่ง")
 
 
 if __name__ == "__main__":

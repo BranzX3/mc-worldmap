@@ -35,6 +35,12 @@ LEAF_IDX = np.asarray(
 STAND_SCALE_BLOCKS = 90.0
 STAND_SEED = 3301
 
+# อายุเชิงโครงสร้างของหมู่ไม้ ไม่ใช่อายุปีจริง: 0 = ระยะฟื้นตัว/พุ่มหนา,
+# 1 = mature/old-growth ที่มีไม้เด่นและ deadwood มากกว่า ใช้ scale ใหญ่กว่า
+# species stand เล็กน้อยเพื่อไม่ให้เส้นแบ่งชนิดไม้กับอายุซ้อนกันเป็น polygon เดียว
+STAND_AGE_SCALE_BLOCKS = 132.0
+STAND_AGE_SEED = 4817
+
 # แนวไม้แคระ — ต่ำกว่า TREELINE ลงมา เพราะไม้จะเตี้ยลงก่อนถึงแนวไม้จริง
 KRUMMHOLZ_BAND = 120.0
 
@@ -81,6 +87,60 @@ def stand_field(shape, spacing_m, x0=0, z0=0, block_m=4.0,
         max(2.0, scale_blocks / step), seed, 2,
     )
     return np.clip(noise * 0.5 + 0.5, 0.0, 1.0)
+
+
+def stand_age_field(shape, spacing_m, x0=0, z0=0, block_m=4.0,
+                    scale_blocks=STAND_AGE_SCALE_BLOCKS,
+                    seed=STAND_AGE_SEED):
+    """Return a world-stable 0..1 structural-age field for forest stands."""
+    step = max(1.0, spacing_m / block_m)
+    broad = S.smooth_noise(
+        x0 / step, z0 / step, shape,
+        max(2.0, scale_blocks / step), seed, 2,
+    )
+    detail = S.smooth_noise(
+        x0 / step, z0 / step, shape,
+        max(2.0, scale_blocks * 0.42 / step), seed + 1, 2,
+    )
+    # broad controls coherent stands; detail softens their boundaries without
+    # turning age into per-tree salt-and-pepper noise.
+    return np.clip(0.72 * (broad * 0.5 + 0.5)
+                   + 0.28 * (detail * 0.5 + 0.5), 0.0, 1.0)
+
+
+def layer_age_probability(layer, age, interior=1.0):
+    """Tree-layer probability from stand age and distance inside the forest.
+
+    Emergent and canopy trees fade toward the polygon edge while understory is
+    retained, producing canopy -> sapling/shrub -> scrub instead of a vertical
+    wall of mature trees at the OSM boundary.
+    """
+    age = np.clip(np.asarray(age, dtype=np.float32), 0.0, 1.0)
+    interior = np.clip(np.asarray(interior, dtype=np.float32), 0.0, 1.0)
+    if layer == "emergent":
+        value = (0.15 + 0.85 * age) * interior ** 2
+    elif layer == "canopy":
+        value = (0.65 + 0.35 * age) * (0.30 + 0.70 * interior)
+    elif layer == "under":
+        value = np.clip((0.95 - 0.45 * age)
+                        * (1.12 - 0.12 * interior), 0.0, 1.0)
+    else:
+        raise ValueError(f"unknown forest layer: {layer}")
+    return float(value) if value.ndim == 0 else value
+
+
+def deadwood_thresholds(age):
+    """Cumulative placement thresholds for forest-floor structure.
+
+    Young stands favour living bushes and contain little deadwood. Mature
+    stands gain fallen logs and stumps while boulders remain geology-driven.
+    """
+    age = float(np.clip(age, 0.0, 1.0))
+    fallen = 0.06 + 0.18 * age
+    stump = fallen + 0.04 + 0.08 * age
+    boulder = stump + 0.08
+    bush = boulder + 0.18 * (1.0 - age)
+    return fallen, stump, boulder, bush
 
 
 def tree_species(elev_m, stand, damp, roll):

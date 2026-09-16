@@ -4,9 +4,15 @@ import build_terrain as B
 
 
 class BuildTerrainTests(unittest.TestCase):
-    def test_experimental_shelters_are_opt_in(self):
+    def test_surface_shelters_are_opt_in_until_world_readback(self):
         self.assertFalse(B.shelters_enabled(["build_terrain.py"]))
         self.assertTrue(B.shelters_enabled(["build_terrain.py", "--shelters"]))
+        self.assertFalse(B.shelters_enabled(["build_terrain.py", "--no-shelters"]))
+
+    def test_build_fingerprint_changes_with_shelter_mode(self):
+        enabled = B.build_fingerprint(shelters=True)
+        disabled = B.build_fingerprint(shelters=False)
+        self.assertNotEqual(enabled, disabled)
 
     def test_aligned_patch_uses_exclusive_chunk_end(self):
         self.assertEqual(

@@ -25,6 +25,49 @@ class StandFieldTests(unittest.TestCase):
         step = np.abs(np.diff(field, axis=0))
         self.assertLess(float(step.mean()), 0.02)
 
+    def test_age_field_is_world_coordinate_invariant_and_bounded(self):
+        full = E.stand_age_field((64, 64), 4.0, x0=1000, z0=2000)
+        part = E.stand_age_field((16, 16), 4.0, x0=1016, z0=2016)
+
+        np.testing.assert_allclose(full[16:32, 16:32], part, atol=1e-6)
+        self.assertGreaterEqual(float(full.min()), 0.0)
+        self.assertLessEqual(float(full.max()), 1.0)
+
+    def test_old_stands_shift_structure_from_understory_to_emergents(self):
+        self.assertGreater(
+            E.layer_age_probability("emergent", 1.0),
+            E.layer_age_probability("emergent", 0.0),
+        )
+        self.assertLess(
+            E.layer_age_probability("under", 1.0),
+            E.layer_age_probability("under", 0.0),
+        )
+
+    def test_forest_edge_keeps_understory_but_suppresses_tall_layers(self):
+        edge = 0.35
+        self.assertLess(
+            E.layer_age_probability("emergent", 0.8, edge),
+            E.layer_age_probability("emergent", 0.8, 1.0),
+        )
+        self.assertLess(
+            E.layer_age_probability("canopy", 0.8, edge),
+            E.layer_age_probability("canopy", 0.8, 1.0),
+        )
+        self.assertGreaterEqual(
+            E.layer_age_probability("under", 0.8, edge),
+            E.layer_age_probability("under", 0.8, 1.0),
+        )
+
+    def test_deadwood_replaces_bushes_as_stands_age(self):
+        young = E.deadwood_thresholds(0.0)
+        old = E.deadwood_thresholds(1.0)
+
+        self.assertGreater(old[0], young[0])
+        self.assertGreater(old[1] - old[0], young[1] - young[0])
+        self.assertAlmostEqual(old[2] - old[1], young[2] - young[1])
+        self.assertGreater(young[3] - young[2], old[3] - old[2])
+        self.assertTrue(all(a <= b for a, b in zip(old, old[1:])))
+
 
 class SpeciesRuleTests(unittest.TestCase):
     def test_broadleaf_below_montane_and_conifer_above(self):
@@ -105,6 +148,37 @@ class PreviewPaintAgreementTests(unittest.TestCase):
         self.assertEqual(V.meadow_zone(0.20, 8.0, 700.0), "pasture")
         self.assertEqual(V.meadow_zone(0.20, 30.0, 700.0), "meadow")
 
+    def test_meadow_disturbance_requires_accessible_suitable_ground(self):
+        suitable = V.meadow_disturbance(0.20, 8.0, 700.0, 0.8)
+        wet = V.meadow_disturbance(0.80, 8.0, 700.0, 0.8)
+        steep = V.meadow_disturbance(0.20, 35.0, 700.0, 0.8)
+        alpine = V.meadow_disturbance(0.20, 8.0, 2600.0, 0.8)
+
+        self.assertGreater(suitable, 0.42)
+        self.assertLess(wet, 0.42)
+        self.assertLess(steep, 0.42)
+        self.assertLess(alpine, 0.42)
+
+    def test_low_disturbance_keeps_dry_flat_meadow_natural(self):
+        self.assertEqual(
+            V.meadow_zone(0.20, 8.0, 700.0, disturbance=0.1),
+            "meadow",
+        )
+
+    def test_canopy_floor_links_material_to_tree_and_moisture(self):
+        self.assertEqual(
+            V.canopy_floor_block(1.5, 4, 0.3, True, 0.4), "podzol"
+        )
+        self.assertEqual(
+            V.canopy_floor_block(1.5, 4, 0.8, True, 0.1), "moss"
+        )
+        self.assertEqual(
+            V.canopy_floor_block(0.0, 4, 0.3, False, 0.02), "rooted"
+        )
+        self.assertIsNone(
+            V.canopy_floor_block(4.0, 4, 0.3, True, 0.9)
+        )
+
     def test_minority_admixture_only_comes_from_the_per_tree_roll(self):
         """roll เปลี่ยนได้แค่ชนิดรอง ชนิดเด่นของผืนต้องมาจาก stand"""
         dominant = [
@@ -112,6 +186,46 @@ class PreviewPaintAgreementTests(unittest.TestCase):
             for r in np.linspace(0.2, 0.9, 12)
         ]
         self.assertEqual(set(dominant), {"oak"})
+
+
+class TrunkEpiphyteTests(unittest.TestCase):
+    def test_dry_stands_have_no_trunk_epiphytes(self):
+        got = V.trunk_epiphytes(
+            [(0, y, 0) for y in range(1, 9)],
+            damp=0.4, age=1.0, rng=np.random.default_rng(3),
+        )
+        self.assertEqual(got, [])
+
+    def test_damp_old_stand_produces_valid_attached_faces(self):
+        trunks = [(0, y, 0) for y in range(1, 9)]
+        got = V.trunk_epiphytes(
+            trunks, damp=1.0, age=1.0, rng=np.random.default_rng(3)
+        )
+
+        self.assertTrue(got)
+        self.assertEqual(
+            got,
+            V.trunk_epiphytes(
+                trunks, damp=1.0, age=1.0, rng=np.random.default_rng(3)
+            ),
+        )
+        self.assertEqual(len({item[:3] for item in got}), len(got))
+        for _x, _y, _z, name, props in got:
+            self.assertIn(name, {"vine", "glow_lichen"})
+            attached = sum(
+                props[face] == "true"
+                for face in ("north", "south", "east", "west")
+            )
+            self.assertEqual(attached, 1)
+            expected_face = {
+                (1, 0): "west", (-1, 0): "east",
+                (0, 1): "north", (0, -1): "south",
+            }[(_x, _z)]
+            self.assertEqual(props[expected_face], "true")
+            self.assertEqual(props["up"], "false")
+            if name == "glow_lichen":
+                self.assertEqual(props["down"], "false")
+                self.assertEqual(props["waterlogged"], "false")
 
 
 if __name__ == "__main__":

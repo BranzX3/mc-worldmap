@@ -1,5 +1,11 @@
 # Immersion acceptance spec
 
+ทิศทางและขอบเขตปัจจุบันอ้าง [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md)
+เกณฑ์ในฉบับนี้เป็น technical contract; การผ่าน Slice v1 ต้องผ่าน route และ
+player review ตามทิศทางหลักด้วย สถานะรับรองปัจจุบันอยู่ใน
+[IMMERSION_REVIEW.md](IMMERSION_REVIEW.md) ตัวเลขย้อนหลังด้านล่างเป็นหลักฐาน
+ของรอบที่ระบุ ไม่รับรอง working tree ปัจจุบัน
+
 เป้าหมายของโปรเจกต์ไม่ใช่แค่สร้างโลกที่โหลดได้หรือไม่มีน้ำรั่ว แต่ต้องทำให้ผู้เล่น
 เดินอยู่ใน Salzkammergut แล้วอ่านภูมิประเทศออกว่าเป็นสถานที่จริงที่มีเหตุผล:
 ลำน้ำต้องพาไปสู่ที่ต่ำ ตลิ่งต้องเดินสำรวจได้ วัสดุต้องตอบสนองต่อแรงน้ำและธรณี
@@ -9,17 +15,20 @@
 เอกสารนี้เป็น release contract ส่วน `TODO.md` เป็นรายการ implementation งานหนึ่ง
 จะถือว่าเสร็จเมื่อผ่านหลักฐานที่ระบุที่นี่ ไม่ใช่เมื่อโค้ดหรือ metric ตัวเดียวผ่าน
 
-## ลำดับความน่าเชื่อถือของหลักฐาน
+## หลักฐานสองด้านที่ต้องผ่านร่วมกัน
 
-1. **บล็อกที่อ่านกลับจาก region file หลัง save/reload** — สิ่งที่อยู่ในโลกจริง
-2. **global verifier แบบตรวจครบพื้นที่** — ใช้กับ invariant ที่ต้องเป็นศูนย์
-3. **golden patches** — ใช้ตรึงเคสยากและเปรียบเทียบก่อน/หลัง
-4. **ภาพจากบล็อกโลกจริงระดับสายตา** — ใช้ตัดสิน scale, repetition และทางเดิน
-5. **array metric / preview จากสูตร** — ใช้สร้างสมมติฐาน ห้ามใช้ยืนยันโลกจริงลำพัง
+**ความถูกต้อง:** บล็อกที่อ่านกลับจาก region file หลัง save/reopen ยืนยันว่าสิ่งที่
+เขียนตรงกับ product; full-map verifier ตรวจ invariant ของ product ทั้งพื้นที่;
+golden patches ตรึงเคสยากและเปรียบเทียบก่อน/หลัง ทั้งหมดต้องผูกกับ snapshot เดียวกัน
+
+**ประสบการณ์:** การเดินจริงและภาพจากบล็อกโลกจริงระดับสายตาตัดสิน scale,
+repetition, การอ่านทาง และความน่าสำรวจ ไม่ลดเป็นหลักฐานชั้นรองของตัวเลข
+array metric/preview ใช้สร้างสมมติฐาน ไม่ใช้ยืนยันโลกจริงลำพัง และ readback
+อย่างเดียวก็ไม่ยืนยันว่าผู้เล่นรู้สึก immersive
 
 `audit_global.py` เป็นการสุ่ม จึงใช้หาปัญหาได้แต่ใช้พิสูจน์ว่า invariant ทั้งโลก
-เป็นศูนย์ไม่ได้ ส่วน `render_view.py` ปัจจุบันใช้ผิวสังเคราะห์และ near-field ยังพัง
-จึงยังไม่ใช่ visual release gate
+เป็นศูนย์ไม่ได้ ส่วน `render_view.py` ปัจจุบันยังใช้ผิวสังเคราะห์ และภาพจากจุดที่
+ขึ้น camera-site warning ถูกผาใกล้กล้องบัง จึงยังไม่ใช่ visual release gate
 
 ## Definition of confidence ก่อนแก้โค้ด
 
@@ -98,15 +107,16 @@ patches และเทียบหลาย reach เพราะการบ�
 ### 4. Landscape coherence
 
 - ขอบป่าต้องไล่จาก canopy -> ต้นเล็ก -> scrub -> meadow ไม่ตัดเป็นเส้น
-  (`surface.forest_ecotone_mask` ทำ scrub transition สองบล็อกแล้ว; canopy/ต้นเล็ก
-  ที่สัมพันธ์กันยังเป็นงานค้าง)
+  (`surface.forest_ecotone_mask` ทำ scrub transition สองบล็อก และ
+  `forest_interior_factor` ลด emergent/canopy แต่คง understory ตรงขอบแล้ว;
+  ยังรอ world gate)
 - forest stand ต้องมีอย่างน้อย canopy, understory, gap และ deadwood ที่สัมพันธ์กัน
 - meadow ต้องแยก dry/wet/pasture ตามความชื้น ความชัน และ disturbance
-  (`vegetation.meadow_zone` ทำ dry/wet/pasture จากความชื้น+ความชันแล้ว;
-  disturbance ยังเป็นงานค้าง)
+  (`vegetation.meadow_disturbance` ทำสนาม disturbance ต่อเนื่องและใช้ร่วมกันทั้ง
+  pasture cover กับหย่อม coarse dirt/dirt แล้ว; ยังรอ world gate)
 - สันเขาสูงต้องมี arête/rock exposure; glacier ต้องมี rock window, crevasse และ
   moraine แทน packed ice ผืนเดียว (`glacier_rock_window_mask` ทำ rock window แล้ว;
-  crevasse/moraine ยังเป็นงานค้าง)
+  `--glacier-detail` ทำ crevasse/moraine แบบ opt-in แล้ว แต่ยังรอ world gate)
 - สี biome, fog, snow และ vegetation ต้องเปลี่ยนตามระดับสูงโดยไม่มี band แข็ง
 
 ### 5. Exploration density
@@ -114,14 +124,23 @@ patches และเทียบหลาย reach เพราะการบ�
 โลก 2.5D ที่ตันทั้งใบไม่ผ่าน immersion แม้ผิวสวย ต้องมีจุดให้ค้นพบในระยะเดิน:
 
 - rock shelter ที่มองเห็นและเข้าได้จากด้านนอก โดยไม่รั่วน้ำหรือทะลุผิว
-- ถ้าระบบถ้ำอยู่นอก scope ต้องมีคำตัดสินชัดเจน ไม่ปล่อยเป็น 0% โดยไม่ตั้งใจ
-- หาก repo นี้รับผิดชอบประสบการณ์ MMO ด้วย ต้องมี trail, crossing, landmark,
-  rest point และ environmental storytelling เป็นอีก pipeline หนึ่ง
+- Slice v1 จำกัดที่กำบัง/โพรงระดับผิวตาม PROJECT_DIRECTION; ระบบถ้ำใต้ดินยาว
+  อยู่นอก milestone แรกโดยตั้งใจ
+- Slice v1 ต้องมี route ที่เดินได้และจุดค้นพบต่างบทบาทอย่างน้อย 3 จุด ใช้
+  crossing, landmark, rest point ตามความจำเป็น; pipeline สำหรับทั้งโลก
+  ออกแบบหลังพิสูจน์ slice ไม่รวม quest/economy/lifeskill ใน acceptance นี้
 
-## World-paint evidence — 2026-08-18
+## World-paint evidence — 2026-08-18 (latest accessible readback)
 
-paint ใหม่ด้วย golden patch ปัจจุบันหลังสร้าง `hydrology_global3` โดย shelters
-ยังปิดตามค่าเริ่มต้น แล้วอ่าน region file กลับจากโลก `mmotest`:
+paint ใหม่ด้วย golden patch ปัจจุบันหลังสร้าง `hydrology_global3`; shelters ยัง
+เป็น opt-in (`--shelters`) และอ่าน region file กลับจากโลก `mmotest` เมื่อ
+environment อนุญาต:
+
+การเปลี่ยนแปลงหลัง readback ชุดนี้ (bank smoothing, seal-notch restore, lake fetch,
+ecotone/glacier windows, shelters opt-in และ atomic tree placement) มี unit และ
+patch-array evidence แล้ว; golden rerun เต็มชุดและ world readback รอบใหม่ยังขาด
+เพราะ environment ปัจจุบันปฏิเสธการอ่าน region files ของ save นี้ จึงห้ามนับว่า
+เป็น visual acceptance จนกว่าจะอ่านกลับได้
 
 | Patch | คอลัมน์น้ำ | Geometry readback | วัสดุก้นน้ำที่เด่น |
 |---|---:|---|---|

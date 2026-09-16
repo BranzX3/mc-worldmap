@@ -1,0 +1,8 @@
+# Local build/paint runtime: CPython 3.11, Windows x64.
+# Keep the Amulet/NumPy stack together; requirements.txt adds GIS acquisition.
+numpy==1.26.4
+scipy==1.17.1
+pillow==12.3.0
+amulet-core==1.9.42
+amulet-nbt==2.1.8
+PyMCTranslate==1.2.45

@@ -3,6 +3,20 @@
 โปรเจกต์นี้สร้างแผนที่ Salzkammergut (ออสเตรีย) 40x40 km ลงโลก Minecraft
 สำหรับเซิร์ฟเวอร์ MMORPG
 
+เป้าหมาย/ขอบเขตงานอ้าง [PROJECT_DIRECTION.md](PROJECT_DIRECTION.md)
+ทำ dev ก่อน และรัน build/test ที่เกี่ยวข้องตอนท้ายรอบงานบนเครื่อง local
+ลำดับคำสั่งด้านล่างอธิบาย dependency ไม่ใช่ให้ rebuild ทุกขั้นทุก session
+
+บนเครื่อง Windows นี้ใช้ `.\run.ps1` แทน `python` ในคำสั่งด้านล่าง เพื่อเลือก
+Python 3.11 ใน `.venv311` ให้ตรงกัน ดู [ENVIRONMENT.md](ENVIRONMENT.md)
+ก่อนเขียนโลกให้รัน `.\run.ps1 preflight_environment.py --full` และต้อง ready=true
+
+**ก่อนใช้ตัวอย่าง:** ชื่อ `hydrology_global`, `hydrology_global3` หรือ patch ใน
+คู่มือนี้ไม่ใช่ alias ของ candidate ปัจจุบัน ต้องตรวจ manifest/fingerprint และ
+ระบุ product เดียวกันตลอด build/paint/verify ตาม IMMERSION_REVIEW
+คำสั่งเริ่มต้นที่ไม่ส่ง hydrology root ใช้ pipeline เดิม; งาน hydrology ใหม่ต้อง
+เลือก product จาก `hydrology_shape.py` และส่ง root/patch ให้ตรงกันทุกขั้น
+
 ## บริบทที่เปลี่ยนการตัดสินใจหลายอย่าง
 
 โลกนี้เป็น **MMORPG ที่บล็อกจะไม่ถูก update จากผู้เล่นหรือสภาพอากาศ** และสัตว์/
@@ -77,7 +91,7 @@ HR="--hydrology-root hydrology_global"   # ชุดปัจจุบัน; �
 python report_metrics.py $HR              # ตัวเลขคุณภาพทั้งแผนที่ ไม่เปิดโลก
 python report_metrics.py --patch x z size $HR
 python render_preview.py 1200 <x> <z> <r> $HR   # top-down
-python render_view.py --at <x> <z> --panorama $HR  # ระดับสายตา (near-field ยังพัง)
+python render_view.py --at <x> <z> --panorama $HR  # ระดับสายตา; ห้ามใช้ภาพที่ขึ้น camera-site warning เป็น evidence
 python check_world_water.py --at <x> <z> --size 256 \
   --hydrology-patch golden_patches/hydrology_patch_x<x>_z<z>_384.npz
 python -m unittest discover -s tests
@@ -103,7 +117,9 @@ python golden_patches.py compare before after # exit 1 ถ้ามีตัว�
 9 พื้นที่อ้างอิง (แต่ละจุดมาจากบั๊กจริงหรือจากการคัดด้วย `suggest`) รันครบ ~5 นาที
 
 **เกณฑ์ผ่านมาจากตัวเลข ไม่ใช่จากภาพ** — ภาพ 3D ที่นี่มาจาก `render_view.py`
-ซึ่งเป็น renderer แทน (เรือนยอดเป็นผิวทึบ, palette พรีวิว, near-field ยังพัง)
+ซึ่งเป็น renderer แทน (เรือนยอดเป็นผิวทึบและวัสดุเป็น palette พรีวิว)
+หากขึ้น camera-site warning แปลว่าผาใกล้กล้องบังภาพตาม geometry จริง ต้องย้าย
+จุดกล้องก่อนใช้ประกอบการตัดสิน
 "ภาพดูโอเค" จึงไม่ได้แปลว่าในเกมโอเค  ตัวเลขทุกตัวใน `metrics.json` จึงนิยาม
 เป็นสิ่งที่ผู้เล่นทำได้จริงเป็นบล็อก:
 

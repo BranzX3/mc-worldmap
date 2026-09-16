@@ -1,0 +1,82 @@
+{
+  "candidate": "paint_ready_20260913_v3",
+  "save": "mmotest-paint-20260913",
+  "reviewer": "",
+  "reviewed_at": "",
+  "instructions": "ตรวจในเกมหลังน้ำ tick แล้วกรอกทุกช่อง ใช้ค่า true/false และเขียนรายละเอียดสั้น ๆ ใน comment",
+  "points": [
+    {
+      "name": "lake_mouth",
+      "center": {"x": 2242, "z": 3057},
+      "teleport": "/tp @s 2248 105 3064",
+      "inspect": [
+        "ปากลำธารต่อกับทะเลสาบโดยไม่มีร่องหรือขอบน้ำสะดุด",
+        "ระดับน้ำไหลลงทางธรรมชาติ ไม่แผ่ย้อนหรือข้ามฝั่ง",
+        "ก้นน้ำกว้างและวัสดุเปลี่ยนต่อเนื่อง ไม่เป็นลายซ้ำแข็ง",
+        "พืชน้ำและตลิ่งไม่บังทางเดินหรือดูถูกสุ่มวาง"
+      ],
+      "comment": "",
+      "water_flows_naturally": null,
+      "shore_walkable": null,
+      "bed_material_natural": null,
+      "plants_natural": null,
+      "screenshots": []
+    },
+    {
+      "name": "hill_junction",
+      "center": {"x": 3344, "z": 480},
+      "teleport": "/tp @s 3344 239 480",
+      "inspect": [
+        "เดินเลียบตลิ่งได้โดยไม่ติดขั้นหรือกำแพงที่ระบบสร้าง",
+        "จุดบรรจบของสายน้ำมีระดับรับกัน ไม่มีน้ำลอยหรือร่องลึกผิดธรรมชาติ",
+        "มุมมองจากต้นน้ำและปลายน้ำยังอ่านเป็นภูมิประเทศเดิม"
+      ],
+      "comment": "",
+      "water_flows_naturally": null,
+      "shore_walkable": null,
+      "junction_level_consistent": null,
+      "terrain_natural": null,
+      "screenshots": []
+    },
+    {
+      "name": "steep_stream",
+      "center": {"x": 5792, "z": 5384},
+      "teleport": "/tp @s 5792 147 5384",
+      "inspect": [
+        "มองน้ำตกจากด้านบนและด้านล่าง เห็น lip, curtain และ pool ครบเป็นชุดเดียว",
+        "น้ำตกอยู่ตรงร่องภูเขาจริง ไม่ใช่ขั้นตัดตรงหรือกำแพงลอย",
+        "ตลิ่งข้างน้ำตกยังเดินได้และไม่มีขั้นซ้ำจากการปัดกริด",
+        "วัสดุก้นน้ำเชี่ยวแตกต่างจากแอ่งอย่างสมเหตุผล"
+      ],
+      "comment": "",
+      "waterfall_natural": null,
+      "shore_walkable": null,
+      "bed_material_natural": null,
+      "no_artificial_steps": null,
+      "screenshots": []
+    },
+    {
+      "name": "player_liked",
+      "center": {"x": 6165, "z": 6068},
+      "teleport": "/tp @s 6168 121 6072",
+      "inspect": [
+        "ฉากโดยรวมยังคงลักษณะที่ผู้เล่นเคยชอบ",
+        "แนวลำน้ำและตลิ่งกลมกลืนกับภูเขา ไม่เห็นการขุดเป็นปล่อง",
+        "ระดับพื้นและพืชไม่ทำให้เส้นทางรกหรืออ่านทางน้ำยาก",
+        "หลังน้ำ tick ไม่มีน้ำไหลเข้าพื้นที่แห้งหรือค้างกลางอากาศ"
+      ],
+      "comment": "",
+      "scene_preserved": null,
+      "shore_walkable": null,
+      "water_after_tick": null,
+      "vegetation_natural": null,
+      "screenshots": []
+    }
+  ],
+  "overall": {
+    "visual_acceptance": null,
+    "post_tick_acceptance": null,
+    "m2_route_ready": null,
+    "comment": ""
+  }
+}

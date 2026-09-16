@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from pipeline_progress import (
     content_fingerprint,
@@ -64,6 +65,15 @@ class PipelineProgressTests(unittest.TestCase):
             open(os.path.join(folder, "session.lock"), "wb").close()
 
             self.assertFalse(world_session_locked(folder))
+
+    def test_inaccessible_lock_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "session.lock")
+            open(path, "wb").close()
+            with mock.patch(
+                "pipeline_progress.os.stat", side_effect=PermissionError(path)
+            ):
+                self.assertTrue(world_session_locked(folder))
 
 
 if __name__ == "__main__":

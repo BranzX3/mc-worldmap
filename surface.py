@@ -38,7 +38,10 @@ def forest_ecotone_mask(landcover, water=None, width=2):
     )
     if blocked.shape != forest.shape:
         raise ValueError("water and landcover ต้องรูปร่างเดียวกัน")
-    reached = forest.copy()
+    # น้ำเป็น barrier ไม่ใช่แค่ cell ที่ตัดออกจากผลลัพธ์ท้ายสุด — ถ้าปล่อยให้
+    # flood-fill ข้ามน้ำ ป่าฝั่งตรงข้ามจะถูกนับเป็น ecotone ทั้งที่อยู่ไกลจริง
+    # กว่าความกว้างที่กำหนด
+    reached = forest & ~blocked
     ring = np.zeros(forest.shape, dtype=bool)
     for _ in range(max(0, int(width))):
         expanded = reached.copy()
@@ -46,9 +49,42 @@ def forest_ecotone_mask(landcover, water=None, width=2):
         expanded[:-1] |= reached[1:]
         expanded[:, 1:] |= reached[:, :-1]
         expanded[:, :-1] |= reached[:, 1:]
+        expanded &= ~blocked
         ring |= expanded & ~reached
         reached = expanded
     return ring & ~blocked
+
+
+def forest_interior_factor(landcover, width=4):
+    """Return a 0..1 maturity ramp from forest edge into its interior.
+
+    The first forest cell is deliberately non-zero: it may carry saplings and
+    understory, while full canopy/emergent structure is reserved for cells at
+    least ``width`` blocks inside the polygon.
+    """
+    landcover = np.asarray(landcover)
+    forest = landcover == LC["forest"]
+    factor = np.zeros(forest.shape, dtype=np.float32)
+    if not forest.any():
+        return factor
+    current = forest.copy()
+    factor[forest] = 0.35
+    width = max(1, int(width))
+    for depth in range(1, width + 1):
+        interior = current.copy()
+        interior[0, :] = False
+        interior[-1, :] = False
+        interior[:, 0] = False
+        interior[:, -1] = False
+        interior[1:-1, 1:-1] &= (
+            current[:-2, 1:-1]
+            & current[2:, 1:-1]
+            & current[1:-1, :-2]
+            & current[1:-1, 2:]
+        )
+        current = interior
+        factor[current] = 0.35 + 0.65 * depth / width
+    return factor
 
 
 def glacier_rock_window_mask(landcover, slope, curvature, roll,
@@ -63,6 +99,49 @@ def glacier_rock_window_mask(landcover, slope, curvature, roll,
     glacier = landcover == LC["glacier"]
     exposed = (slope >= float(slope_min)) | (curvature >= float(curvature_min))
     return glacier & exposed & (roll < 0.24)
+
+
+def glacier_crevasse_mask(landcover, slope, field_a, field_b, roll,
+                          slope_min=14.0, band_width=0.030):
+    """Return sparse curved stress lines within glacier ice.
+
+    A thin contour of two world-space noise fields produces connected,
+    irregular lines rather than periodic stripes.  Gentle ice remains intact;
+    crevasses appear only where the glacier is steep enough to deform.
+    """
+    arrays = [np.asarray(v) for v in (landcover, slope, field_a, field_b, roll)]
+    if len({value.shape for value in arrays}) != 1:
+        raise ValueError("glacier crevasse inputs must have the same shape")
+    landcover, slope, field_a, field_b, roll = arrays
+    glacier = landcover == LC["glacier"]
+    level = 0.50 + 0.14 * (field_b.astype(np.float32) - 0.5)
+    contour = np.abs(field_a.astype(np.float32) - level) < float(band_width)
+    stressed = np.asarray(slope, dtype=np.float32) >= float(slope_min)
+    return glacier & stressed & contour & (np.asarray(roll) < 0.78)
+
+
+def glacier_moraine_mask(landcover, roll, width=3):
+    """Return a broken lateral-moraine belt outside glacier polygons."""
+    landcover = np.asarray(landcover)
+    roll = np.asarray(roll, dtype=np.float32)
+    if landcover.shape != roll.shape:
+        raise ValueError("glacier moraine inputs must have the same shape")
+    glacier = landcover == LC["glacier"]
+    blocked = landcover == LC["water"]
+    reached = glacier.copy()
+    moraine = np.zeros(glacier.shape, dtype=bool)
+    for distance in range(1, max(0, int(width)) + 1):
+        expanded = reached.copy()
+        expanded[1:] |= reached[:-1]
+        expanded[:-1] |= reached[1:]
+        expanded[:, 1:] |= reached[:, :-1]
+        expanded[:, :-1] |= reached[:, 1:]
+        expanded &= ~blocked
+        ring = expanded & ~reached & ~glacier
+        probability = 0.72 - 0.16 * (distance - 1)
+        moraine |= ring & (roll < max(0.20, probability))
+        reached = expanded
+    return moraine & ~blocked
 
 
 def apply_water_mask(landcover, water_mask):
@@ -834,4 +913,11 @@ def decor_fields(elev_m, spacing_m, x0=0, z0=0, block_m=4.0, seed=5150):
         "patch_a": nz(14, seed + 2, 2) * 0.5 + 0.5,
         "patch_b": nz(9, seed + 3, 2) * 0.5 + 0.5,
         "patch_c": nz(24, seed + 4, 2) * 0.5 + 0.5,
+        # การรบกวนของทุ่ง (เหยียบย่ำ/แทะเล็ม) ต้องเป็นหย่อมต่อเนื่องระดับโลก
+        # ไม่ใช่สุ่มรายบล็อก มิฉะนั้น pasture จะดูเป็น noise เกลือพริกไทย
+        "disturbance": np.clip(
+            0.72 * (nz(54, seed + 5, 2) * 0.5 + 0.5)
+            + 0.28 * (nz(19, seed + 6, 2) * 0.5 + 0.5),
+            0.0, 1.0,
+        ),
     }

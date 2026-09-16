@@ -157,7 +157,8 @@ def despeckle(height_y):
 
 
 def quantize(elev_m, x0=0, z0=0, meta=None, amplitude=DITHER_AMPLITUDE,
-             clean=True, protect=None, relief=True, relief_stats=None):
+             clean=True, protect=None, relief=True, relief_stats=None,
+             relief_features=None):
     """คืน (terrain_y int32, sub float32) — ระดับบล็อกและเศษที่เหลือ
 
     sub คือส่วนที่ปัดทิ้งไป (ต่อเนื่อง - ปัด) อยู่ในช่วงราว -0.5..0.5
@@ -172,8 +173,11 @@ def quantize(elev_m, x0=0, z0=0, meta=None, amplitude=DITHER_AMPLITUDE,
         # สุดท้าย ถ้าใส่ทีหลังชั้นหินที่เพิ่งสร้างจะถูกกวนจนขอบพร่า
         import micro_relief as M
 
+        kwargs = {} if relief_features is None else {
+            "features": tuple(relief_features)
+        }
         continuous, stats = M.apply(
-            continuous, elev_m, x0=x0, z0=z0, protect=protect
+            continuous, elev_m, x0=x0, z0=z0, protect=protect, **kwargs
         )
         if relief_stats is not None:
             relief_stats.update(stats)
@@ -319,6 +323,10 @@ def main():
 
     out_y = np.zeros((n, n), dtype=np.int16)
     out_sub = np.zeros((n, n), dtype=np.int8)
+    relief_features = None
+    if "--arete" in sys.argv:
+        relief_features = ("arete", "bedding", "talus", "doline")
+        print("  [ทดลอง] เปิด arête ridge sharpening")
     relief_area = {}
     relief_max = {}
     straight_hit = straight_tot = 0
@@ -345,6 +353,7 @@ def main():
             y, frac = quantize(
                 elev, x0=pz0, z0=px0, meta=meta, protect=protect,
                 relief_stats=stats,
+                relief_features=relief_features,
             )
             plain = np.rint(elevation_to_height(elev, meta)).astype(np.int32)
             _clean, tile_spikes = despeckle(plain)
@@ -382,7 +391,8 @@ def main():
         print("\nภูมิสัณฐานย่อยที่เติม (พื้นที่ = ส่วนที่ขยับเกินครึ่งบล็อก):")
         label = {"bedding": "ชั้นหินยื่นบนหน้าผา",
                  "talus": "กองหินเชิงผา",
-                 "doline": "หลุมยุบหินปูน"}
+                 "doline": "หลุมยุบหินปูน",
+                 "arete": "สันเขาคม arête"}
         for key in relief_area:
             print(f"  {label.get(key, key):<22} พื้นที่ {relief_area[key]/total:6.2%} | "
                   f"ลึก/หนาสุด {relief_max[key]:5.1f} บล็อก")

@@ -15,9 +15,8 @@
 ต้นไม้จะถูกจัดกึ่งกลางตามแกน x/z อัตโนมัติ และวางให้ชั้นล่างสุดอยู่เหนือผิวดิน 1 บล็อก
 สุ่มหมุน 4 ทิศเพื่อเพิ่มความหลากหลาย
 
-หมายเหตุ: การหมุนเปลี่ยนแค่พิกัด ไม่แก้ property อย่าง axis/facing ซึ่งไม่มีผลกับ
-ต้นไม้ทั่วไปที่ลำต้นเป็น axis=y แต่ถ้า schematic มีบล็อกทิศทางอื่น (เช่นท่อนไม้นอน
-หรือใบไม้แบบ directional) รูปทรงจะยังถูกแต่เนื้อไม้อาจหันผิดทาง
+หมายเหตุ: การหมุนแก้ property ทิศทางที่พบบ่อย (`axis`, `facing`, `rotation`)
+ให้สอดคล้องกับพิกัดด้วย จึงรองรับกิ่งไม้แนวนอนและบล็อกประดับ directional ได้ด้วย
 """
 
 import glob
@@ -211,10 +210,23 @@ def rotate(blocks, turns):
     turns %= 4
     if turns == 0:
         return blocks
+    facing_order = ("north", "east", "south", "west")
     out = []
     for x, y, z, n, p in blocks:
+        # อย่าแก้ dict ของ schematic ต้นฉบับ เพราะบล็อกเดียวกันอาจถูกใช้ซ้ำ
+        p = dict(p)
         for _ in range(turns):
             x, z = -z, x
+            if p.get("axis") in ("x", "z"):
+                p["axis"] = "z" if p["axis"] == "x" else "x"
+            if p.get("facing") in facing_order:
+                p["facing"] = facing_order[(facing_order.index(p["facing"]) + 1) % 4]
+            if "rotation" in p:
+                try:
+                    p["rotation"] = str((int(p["rotation"]) + 4) % 16)
+                except (TypeError, ValueError):
+                    # บาง custom block ใช้ค่าที่ไม่ใช่เลข — ปล่อยไว้ตามเดิม
+                    pass
         out.append((x, y, z, n, p))
     return out
 

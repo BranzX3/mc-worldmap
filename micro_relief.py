@@ -56,6 +56,18 @@ DOLINE_DEPTH = 3.5              # ลึกสุด (บล็อก)
 DOLINE_MIN_ELEV = 1450.0        # ที่ราบสูงหินปูนเหนือแนวนี้
 DOLINE_MAX_SLOPE = 0.30         # เกิดบนที่ราบเท่านั้น
 
+# ---- สันเขาคมแบบ arête (experimental / opt-in) ----
+# วัดไหล่สองข้างห่างสี่บล็อกเพื่อแยกสันจริงออกจาก noise หนึ่งพิกเซล แล้วเพิ่ม
+# ยอดไม่เกินสองบล็อกเท่านั้น การเปิด default ต้องรอ golden + world readback
+# เพราะ silhouette เปลี่ยนชัดแม้ delta จะเล็ก
+ARETE_SPAN = 4
+ARETE_MIN_ELEV = 1750.0
+ARETE_RELIEF_START = 0.45
+ARETE_RELIEF_FULL = 3.0
+ARETE_SLOPE_START = 0.55
+ARETE_SLOPE_FULL = 1.35
+ARETE_HEIGHT = 2.0
+
 
 def _quantise(field, levels):
     """ปัดค่า 0..1 ให้เป็นขั้นบันได levels ขั้น — ได้ผืนที่ค่าคงที่ภายใน"""
@@ -71,6 +83,53 @@ def slope_blocks(height):
     height = np.asarray(height, dtype=np.float32)
     dz, dx = np.gradient(height, 1.0)
     return np.hypot(dx, dz)
+
+
+def ridge_aretes(height, slope, elev_m, span=None):
+    """Return a small positive delta on high, convex mountain crests only."""
+    height = np.asarray(height, dtype=np.float32)
+    slope = np.asarray(slope, dtype=np.float32)
+    elev_m = np.asarray(elev_m, dtype=np.float32)
+    if not (height.shape == slope.shape == elev_m.shape):
+        raise ValueError("arête inputs must have the same shape")
+    span = ARETE_SPAN if span is None else max(1, int(span))
+
+    def shifted_edge(values, dz, dx):
+        pad = span
+        padded = np.pad(values, pad, mode="edge")
+        rows, cols = values.shape
+        return padded[
+            pad + dz:pad + dz + rows,
+            pad + dx:pad + dx + cols,
+        ]
+
+    left = shifted_edge(height, 0, -span)
+    right = shifted_edge(height, 0, span)
+    north = shifted_edge(height, -span, 0)
+    south = shifted_edge(height, span, 0)
+    # A ridge may run along either axis. It must stand above both opposing
+    # shoulders on at least one cross-section; valleys therefore score <= 0.
+    cross_x = np.minimum(height - left, height - right)
+    cross_z = np.minimum(height - north, height - south)
+    relief = np.maximum(cross_x, cross_z)
+    crest = np.clip(
+        (relief - ARETE_RELIEF_START)
+        / (ARETE_RELIEF_FULL - ARETE_RELIEF_START), 0.0, 1.0,
+    )
+    # Central differences report zero exactly on a symmetric crest even when
+    # both shoulders are steep. Measure the span shoulders too, otherwise the
+    # very ridge line that needs sharpening is filtered out.
+    shoulder_slope = np.maximum.reduce((
+        np.abs(height - left), np.abs(height - right),
+        np.abs(height - north), np.abs(height - south),
+    )) / float(span)
+    local_slope = np.maximum(slope, shoulder_slope)
+    flank = np.clip(
+        (local_slope - ARETE_SLOPE_START)
+        / (ARETE_SLOPE_FULL - ARETE_SLOPE_START), 0.0, 1.0,
+    )
+    high = np.clip((elev_m - ARETE_MIN_ELEV) / 350.0, 0.0, 1.0)
+    return crest * flank * high * ARETE_HEIGHT
 
 
 def bedding_ledges(height, slope, x0=0, z0=0, strength=None):
@@ -130,11 +189,21 @@ def _propagate_downhill(source, height, steps=None, decay=None):
     source = np.asarray(source, dtype=np.float32)
     height = np.asarray(height, dtype=np.float32)
     out = source.copy()
+    rows, cols = out.shape
+
+    def shifted_edge(values, dz, dx):
+        """Shift a field with clamped edges; never wrap across a tile seam."""
+        padded = np.pad(values, 1, mode="edge")
+        return padded[
+            1 + dz:1 + dz + rows,
+            1 + dx:1 + dx + cols,
+        ]
+
     for _ in range(int(steps)):
         best = out.copy()
         for dz, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            shifted = np.roll(np.roll(out, dz, axis=0), dx, axis=1)
-            higher = np.roll(np.roll(height, dz, axis=0), dx, axis=1) > height
+            shifted = shifted_edge(out, dz, dx)
+            higher = shifted_edge(height, dz, dx) > height
             best = np.maximum(best, np.where(higher, shifted * decay, 0.0))
         if np.allclose(best, out):
             break
@@ -194,6 +263,9 @@ def apply(height, elev_m, x0=0, z0=0, protect=None, features=("bedding",
         height = height + delta
 
     slope = slope_blocks(height)
+    if "arete" in features:
+        add(ridge_aretes(height, slope, elev_m), "arete")
+        slope = slope_blocks(height)
     if "bedding" in features:
         add(bedding_ledges(height, slope, x0=x0, z0=z0), "bedding")
         slope = slope_blocks(height)

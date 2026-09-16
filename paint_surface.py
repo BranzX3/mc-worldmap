@@ -17,6 +17,8 @@
 ถ้าจะปรับแค่พืช/ต้นไม้ ใช้ --vegetation-only แทน — มันล้างเฉพาะชั้นเหนือผิวดิน
     python paint_surface.py                          # ทั้งแผนที่
     python paint_surface.py --resume                 # รันต่อจากที่ค้าง
+    python paint_surface.py --patch ... --glacier-detail
+                                                    # ทดลอง crevasse + moraine
 
 ทำทีละ region (32x32 chunks) แล้ว save+purge เหมือน build_terrain.py เพื่อไม่ให้
 amulet กอง history จน MemoryError
@@ -42,6 +44,7 @@ import surface as S
 import water_ecology as WE
 import vegetation as V
 import tree_schematics as TS
+from atomic_writes import write_air_atomic as _write_air_atomic
 from paint_world import repair_entities
 from pipeline_progress import (
     content_fingerprint,
@@ -82,7 +85,9 @@ TREE_PAD = 4            # fallback เมื่อไม่มี schematic
 # ต้องสูงกว่าต้นไม้ที่สูงสุดในแพ็ก เท่ากับ CLEAR_HEADROOM ของ build_terrain.py
 # ไม่งั้น --vegetation-only จะเหลือยอดใบไม้เก่าลอยค้าง
 VEGETATION_HEADROOM = 64
-PAINT_PIPELINE_VERSION = "2026-08-18-flow-bed-and-snow-tufts"
+PAINT_PIPELINE_VERSION = (
+    "2026-09-10-flow-fetch-ecotone-glacier-forest-meadow-atomic"
+)
 
 # หิมะที่บางกว่านี้ (หน่วย 1/8 บล็อก) ยอมให้มีช่องให้พืชโผล่ได้
 SNOW_TUFT_MAX = 3
@@ -1055,7 +1060,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
                          waterfall_lip_mask=None,
                          waterfall_pool_mask=None,
                          flowing_water_mask=None,
-                         flow_index=None, landcover=None):
+                         flow_index=None, landcover=None,
+                         glacier_detail=False):
     """เตรียม array สำหรับผิวดิน ชั้นดิน น้ำ น้ำแข็ง และหิมะ
 
     array ที่คืนมามีพิกัด [x, z] เฉพาะกรอบจริง ไม่รวม padding การแยกขั้นนี้
@@ -1098,9 +1104,32 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
     patch_c = decor["patch_c"][sx, sz]
     damp = decor["damp"][sx, sz]
     slope = decor["slope"][sx, sz]
+    disturbance_field = decor.get("disturbance", decor["patch_c"])[sx, sz]
+    meadow_disturbance = V.meadow_disturbance(
+        damp, slope, elev_core, disturbance_field,
+    )
 
     wx = np.arange(x0, x1, dtype=np.int64)[:, None]
     wz = np.arange(z0, z1, dtype=np.int64)[None, :]
+
+    crevasse = np.zeros(shape, dtype=bool)
+    moraine = np.zeros(shape, dtype=bool)
+    if glacier_detail:
+        if landcover is None:
+            raise ValueError("glacier detail requires landcover")
+        landcover = np.asarray(landcover)
+        if landcover.shape != surf_y.shape:
+            raise ValueError("landcover and surf_y must have the same shape")
+        landcover_core = landcover[sx, sz]
+        crevasse = S.glacier_crevasse_mask(
+            landcover_core, slope, patch_a, patch_b,
+            bhash_array(wx, wz, 6211),
+        )
+        full_x = np.arange(px0, px0 + landcover.shape[0], dtype=np.int64)[:, None]
+        full_z = np.arange(pz0, pz0 + landcover.shape[1], dtype=np.int64)[None, :]
+        moraine = S.glacier_moraine_mask(
+            landcover, bhash_array(full_x, full_z, 6212), width=3
+        )[sx, sz]
 
     water_full = cls == S.IDX["water"]
     water_mask = water_full[sx, sz]
@@ -1148,6 +1177,38 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         np.asarray(P.surface_ids, dtype=np.uint32), cls_core
     ).copy()
     material_cls = cls_core.copy()
+
+    if glacier_detail and moraine.any():
+        moraine_roll = bhash_array(wx, wz, 6213)
+        moraine_gravel = moraine & (moraine_roll < 0.62)
+        moraine_cobble = moraine & ~moraine_gravel & (moraine_roll < 0.88)
+        moraine_stone = moraine & ~moraine_gravel & ~moraine_cobble
+        surface_id[moraine_gravel] = P.surface_ids[S.IDX["gravel"]]
+        surface_id[moraine_cobble] = P.surface_ids[S.IDX["cobble"]]
+        surface_id[moraine_stone] = P.surface_ids[S.IDX["stone"]]
+        material_cls[moraine_gravel] = S.IDX["gravel"]
+        material_cls[moraine_cobble] = S.IDX["cobble"]
+        material_cls[moraine_stone] = S.IDX["stone"]
+        soil_core[moraine] = False
+
+    # รอยแทะเล็ม/เหยียบย่ำต้องใช้สนามเดียวกับที่เลือก pasture ด้านล่าง จึงอ่าน
+    # เป็นกระบวนการเดียวกันทั้งสีผิวและพืช ไม่ใช่หย่อมดินสุ่มที่ไม่สัมพันธ์กัน
+    trample_roll = bhash_array(wx, wz, 6311)
+    trample_probability = np.clip(
+        0.04 + (meadow_disturbance - 0.42) * 0.32, 0.0, 0.18,
+    )
+    trampled = (
+        soil_core
+        & np.isin(cls_core, (S.IDX["grass"], S.IDX["moss"]))
+        & (meadow_disturbance >= 0.42)
+        & (trample_roll < trample_probability)
+    )
+    trample_coarse = trampled & (bhash_array(wx, wz, 6312) < 0.72)
+    trample_dirt = trampled & ~trample_coarse
+    surface_id[trample_coarse] = P.surface_ids[S.IDX["coarse"]]
+    surface_id[trample_dirt] = P.surface_ids[S.IDX["dirt"]]
+    material_cls[trample_coarse] = S.IDX["coarse"]
+    material_cls[trample_dirt] = S.IDX["dirt"]
 
     # ชายฝั่งคำนวณพร้อมกันทั้ง region เพื่อลด hash/setb รายบล็อก
     shore_texture = np.clip(0.68 * patch_a + 0.32 * patch_b, 0.0, 1.0)
@@ -1290,6 +1351,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         ice_band,
         np.asarray([P.ice_edge, P.ice_mid, P.ice_core], dtype=np.uint32),
     )
+    if glacier_detail:
+        ice_top[crevasse & ice_mask] = P.ice_core
 
     if terrain_sub is None:
         slab = np.zeros(shape, dtype=np.int8)
@@ -1316,6 +1379,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "cliff_face_depth": cliff_face_depth,
         "damp": damp,
         "slope": slope,
+        "meadow_disturbance": meadow_disturbance,
+        "trampled": trampled,
         "subsoil_mask": subsoil_mask,
         "subsoil_ids": subsoil_ids,
         "water": water_mask,
@@ -1342,6 +1407,8 @@ def prepare_dense_fields(P, surf_y, elev, cls, snow_lv, soil, wdepth,
         "clipped": clipped,
         "ice": ice_mask,
         "ice_top": ice_top,
+        "glacier_crevasse": crevasse & ice_mask,
+        "glacier_moraine": moraine,
         "beach": beach,
         "shore_cobble_mask": cobble,
         "shore_sand_mask": sand,
@@ -1825,6 +1892,7 @@ class SoftBlockBuffer:
         self.painter = painter
         self.get_chunk = get_chunk
         self.sections = {}
+        self._journal = None
 
     def set(self, wx, wy, wz, block_id):
         cx, cz = wx >> 4, wz >> 4
@@ -1843,6 +1911,8 @@ class SoftBlockBuffer:
         lx, ly, lz = wx & 15, wy - section_y * 16, wz & 15
         if not self.painter.is_soft(int(data[lx, ly, lz])):
             return False
+        if self._journal is not None:
+            self._journal.append((key, lx, ly, lz, int(data[lx, ly, lz])))
         data[lx, ly, lz] = block_id
         return True
 
@@ -1853,6 +1923,37 @@ class SoftBlockBuffer:
         count = len(self.sections)
         self.sections.clear()
         return count
+
+    def checkpoint(self):
+        """Start a lightweight journal so one object can be atomic.
+
+        Copying every buffered section for every tree is prohibitively costly
+        on a full map.  The journal records only cells touched after this
+        checkpoint and is committed or replayed in reverse on completion.
+        """
+        if self._journal is not None:
+            raise RuntimeError("nested soft-buffer checkpoints are unsupported")
+        self._journal = []
+        return frozenset(self.sections)
+
+    def commit(self, checkpoint):
+        """Commit writes made since ``checkpoint`` and discard its journal."""
+        if self._journal is None:
+            raise RuntimeError("no active soft-buffer checkpoint")
+        self._journal = None
+
+    def rollback(self, checkpoint):
+        """Undo writes made since ``checkpoint`` without copying all sections."""
+        if self._journal is None:
+            raise RuntimeError("no active soft-buffer checkpoint")
+        for key, lx, ly, lz, old in reversed(self._journal):
+            item = self.sections.get(key)
+            if item is not None:
+                item[1][lx, ly, lz] = old
+        for key in tuple(self.sections):
+            if key not in checkpoint:
+                del self.sections[key]
+        self._journal = None
 
 
 def lake_shore_probability(water, water_depth, shore_width=4):
@@ -2019,7 +2120,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                    waterfall_top_y=None, waterfall_lip_mask=None,
                    waterfall_pool_mask=None, flowing_water_mask=None,
                    flow_index=None,
-                   active_chunks=None):
+                   active_chunks=None, glacier_detail=False):
     """เขียนผิว+พืชในกรอบบล็อก [x0,x1) x [z0,z1)
 
     surf_y / elev / lc ครอบกรอบที่ pad แล้ว โดยมีมุมซ้ายบนอยู่ที่บล็อก (px0, pz0)
@@ -2047,6 +2148,11 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         elev.shape, C.METERS_PER_BLOCK, x0=px0, z0=pz0,
         block_m=C.METERS_PER_BLOCK,
     )
+    stand_age = E.stand_age_field(
+        elev.shape, C.METERS_PER_BLOCK, x0=px0, z0=pz0,
+        block_m=C.METERS_PER_BLOCK,
+    )
+    forest_interior = S.forest_interior_factor(lc, width=4)
 
     # ชายฝั่ง — ไล่ระดับตามระยะ ไม่ใช่วงแหวนกรวดคมๆ รอบน้ำ
     #
@@ -2101,6 +2207,42 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         ch.blocks[lx, wy, lz] = bid
         return True
 
+    def write_soft_atomic(items):
+        """Write a multi-block tree atomically within this region.
+
+        Blocks outside the region are intentionally omitted: the neighbouring
+        region owns those cells, which keeps region-edge trees seamless.  A
+        collision or missing chunk anywhere inside the owned part rolls back
+        every buffered write for the object instead of leaving a broken tree.
+        """
+        pending = []
+        y_min = getattr(C, "Y_FILL_BOTTOM", C.Y_TERRAIN_MIN)
+        for wx, wy, wz, bid in items:
+            if not (x0 <= wx < x1 and z0 <= wz < z1):
+                continue
+            # Horizontal overflow belongs to a neighbouring region, but
+            # vertical overflow has no owner. Reject the whole object rather
+            # than silently chopping its roots or crown at the build limit.
+            if not (y_min <= wy <= C.Y_BUILD_CEILING):
+                return 0
+            pending.append((wx, wy, wz, bid))
+        if not pending:
+            return 0
+        checkpoint = soft_buffer.checkpoint()
+        for wx, wy, wz, bid in pending:
+            if not setb(wx, wy, wz, bid, soft=True):
+                soft_buffer.rollback(checkpoint)
+                return 0
+        soft_buffer.commit(checkpoint)
+        return len(pending)
+
+    def write_air_atomic(items):
+        return _write_air_atomic(
+            items, x0, x1, z0, z1,
+            getattr(C, "Y_FILL_BOTTOM", C.Y_TERRAIN_MIN),
+            C.Y_BUILD_CEILING, get_chunk, P.is_air,
+        )
+
     # ---- ผิวดิน + ใต้ผิว + แอ่งน้ำ + น้ำแข็ง + หิมะ ----------------------------
     # ส่วนที่มีเกือบทุกคอลัมน์เขียนเป็น volume ต่อ chunk แทน setb() ทีละบล็อก
     dense = prepare_dense_fields(
@@ -2115,7 +2257,21 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         flowing_water_mask=flowing_water_mask,
         flow_index=flow_index,
         landcover=lc,
+        glacier_detail=glacier_detail,
     )
+    if glacier_detail and not vegetation_only:
+        stats["glacier_crevasse"] = (
+            stats.get("glacier_crevasse", 0)
+            + int(dense["glacier_crevasse"].sum())
+        )
+        stats["glacier_moraine"] = (
+            stats.get("glacier_moraine", 0)
+            + int(dense["glacier_moraine"].sum())
+        )
+    if not vegetation_only:
+        stats["trampled_ground"] = (
+            stats.get("trampled_ground", 0) + int(dense["trampled"].sum())
+        )
     object_surface = surf_y.copy()
     object_surface[
         x0 - px0:x1 - px0, z0 - pz0:z1 - pz0
@@ -2239,8 +2395,10 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         by = int(dense["bed_y"][qx, qz]) + 1
         if (
             by + 1 <= int(dense["y"][qx, qz])
-            and setb(wx, by, wz, P.tall_seagrass_lower)
-            and setb(wx, by + 1, wz, P.tall_seagrass_upper)
+            and write_air_atomic((
+                (wx, by, wz, P.tall_seagrass_lower),
+                (wx, by + 1, wz, P.tall_seagrass_upper),
+            )) == 2
         ):
             stats["aqua"] = stats.get("aqua", 0) + 1
     for qx, qz in zip(*np.nonzero(lily)):
@@ -2265,10 +2423,12 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
     for qx, qz in zip(*np.nonzero(reed_heights)):
         wx, wz = x0 + int(qx), z0 + int(qz)
         base = int(dense["object_y"][qx, qz]) + 1
-        wrote = 0
-        for dy in range(int(reed_heights[qx, qz])):
-            wrote += setb(wx, base + dy, wz, P.reed, only_air=True)
-        if wrote:
+        reed_items = [
+            (wx, base + dy, wz, P.reed)
+            for dy in range(int(reed_heights[qx, qz]))
+        ]
+        wrote = write_air_atomic(reed_items)
+        if wrote == len(reed_items) and wrote:
             stats["reeds"] = stats.get("reeds", 0) + 1
 
     # ---- พืชพื้นล่าง: วนเฉพาะคอลัมน์ที่ปลูกได้ -------------------------------
@@ -2310,6 +2470,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         elif name in ("grass_block", "moss_block"):
             zone = V.meadow_zone(
                 float(D["damp"][ix, iz]), float(D["slope"][ix, iz]), e,
+                float(D["disturbance"][ix, iz]),
             )
         else:
             continue
@@ -2330,17 +2491,19 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                 stats["plants"] += 1
             continue
         if two:
-            # พืชสองบล็อกต้องมีที่ว่างสองชั้นและตั้ง half ให้ถูก
-            if setb(wx, y + 1, wz, P.prop_block(pn, {"half": "lower"}),
-                    only_air=True):
-                if setb(wx, y + 2, wz, P.prop_block(pn, {"half": "upper"}),
-                        only_air=True):
-                    stats["plants"] += 1
-                else:
-                    # ไม่มีที่ให้ครึ่งบน ใช้พืชบล็อกเดียวแทน
-                    setb(wx, y + 1, wz,
-                         P.plant("fern" if "fern" in pn else "short_grass"))
-                    stats["plants"] += 1
+            # พืชสองบล็อกต้องมีที่ว่างสองชั้นและตั้ง half ให้ถูก — ตรวจทั้งคู่
+            # ก่อนเขียนเพื่อไม่ทิ้งครึ่งล่างเมื่อเพดานหรือใบไม้บังครึ่งบน
+            wrote = write_air_atomic((
+                (wx, y + 1, wz, P.prop_block(pn, {"half": "lower"})),
+                (wx, y + 2, wz, P.prop_block(pn, {"half": "upper"})),
+            ))
+            if wrote == 2:
+                stats["plants"] += 1
+            elif setb(wx, y + 1, wz,
+                      P.plant("fern" if "fern" in pn else "short_grass"),
+                      only_air=True):
+                # ไม่มีที่ให้ครบสองชั้น ใช้พืชบล็อกเดียวแทน
+                stats["plants"] += 1
         elif setb(wx, y + 1, wz, P.plant(pn), only_air=True):
             stats["plants"] += 1
 
@@ -2359,6 +2522,11 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
         fp = float(forest_p[ix, iz])
         if fp <= 0.02 or rng.random() > fp:
             continue
+        interior_here = float(forest_interior[ix, iz])
+        if rng.random() > E.layer_age_probability(
+            layer, stand_age[ix, iz], interior_here,
+        ):
+            continue
         if (
             cls[ix, iz] in (S.IDX["water"], S.IDX["ice"])
             or shore[ix, iz]
@@ -2366,7 +2534,15 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
             continue
 
         e = float(elev[ix, iz])
+        damp_here = float(D["damp"][ix, iz])
+        age_here = float(stand_age[ix, iz])
         size = V.SIZE_OF[layer]
+
+        # แนวขอบป่าเก็บต้นอ่อน/พุ่มไว้ แต่ลดต้นใหญ่ซึ่งทำให้ polygon ดูเป็นกำแพง
+        if interior_here < 0.55:
+            size = "small"
+        elif interior_here < 0.80 and size == "big":
+            size = "normal"
 
         # ไม้เด่นที่โผล่พ้นเรือนยอดขึ้นเฉพาะในป่าทึบที่ดินดี
         if layer == "emergent" and fp < 0.60:
@@ -2376,7 +2552,7 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
         # ชนิดไม้มาจาก ecology.py ตัวเดียวกับที่พรีวิวใช้ — ห้ามตัดสินใหม่ที่นี่
         kind = E.SPECIES[int(E.tree_species(
-            e, float(stand[ix, iz]), float(D["damp"][ix, iz]), rng.random()
+            e, float(stand[ix, iz]), damp_here, rng.random()
         ))]
         if kind == "krummholz":
             size = "small"                      # สนแคระใกล้แนวไม้
@@ -2385,10 +2561,15 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
         variants = P.schems.get(kind) or []
         wrote = 0
+        trunks = []
 
         if variants:
             t = V.pick_variant(variants, size, snowy, rng)
             sch = TS.rotate(t["blocks"], int(rng.integers(4)))
+            trunks = [
+                (dx, dy, dz) for dx, dy, dz, nm, _pr in sch
+                if nm.split(":")[-1].endswith(("_log", "_wood"))
+            ]
 
             # ฐานต้องอิงจุดต่ำสุดของผิวดินใต้โคนต้น ไม่ใช่คอลัมน์กลางต้นเดียว
             # ไม่งั้นบนพื้นลาดด้านที่ต่ำกว่าจะลอย (ยอมให้ฝั่งสูงจมดินแทน
@@ -2402,10 +2583,10 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                     v = int(object_surface[jx, jz])
                     low = v if low is None else min(low, v)
             base = (low if low is not None else int(object_surface[ix, iz])) + 1
-
-            for dx, dy, dz, nm, pr in sch:
-                wrote += setb(tx + dx, base + dy, tz + dz,
-                              P.schem_id(nm, pr), soft=True)
+            wrote = write_soft_atomic(
+                (tx + dx, base + dy, tz + dz, P.schem_id(nm, pr))
+                for dx, dy, dz, nm, pr in sch
+            )
         else:
             if kind == "krummholz":
                 # ไม่มี schematic สนแคระในแพ็ก จึงใช้ทรงจากโค้ดเสมอ
@@ -2418,13 +2599,65 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                 blocks, wood = V.oak(rng), "oak"
             base = int(object_surface[ix, iz]) + 1
             lid, gid = P.leaf_id[wood], P.log_id[wood]
-            for dx, dy, dz, what in blocks:
-                wrote += setb(tx + dx, base + dy, tz + dz,
-                              gid if what == "log" else lid, soft=True)
+            trunks = [
+                (dx, dy, dz) for dx, dy, dz, what in blocks
+                if what == "log"
+            ]
+            wrote = write_soft_atomic(
+                (tx + dx, base + dy, tz + dz,
+                 gid if what == "log" else lid)
+                for dx, dy, dz, what in blocks
+            )
         if wrote:
             stats["trees"] += 1
             stats["tree_blocks"] += wrote
             stats[layer] = stats.get(layer, 0) + 1
+            # ผิวใต้เรือนยอดต้องสัมพันธ์กับต้นที่วางสำเร็จจริง ไม่ใช่ noise ป่า
+            # คนละชุด: ต้นสนทำ podzol, ร่องชื้นทำ moss และโคนเผย rooted dirt
+            # เป็น halo ที่ค่อย ๆ จางออก ไม่ใช่วงกลมทึบ
+            halo_radius = {"small": 2, "normal": 3, "big": 4}[size]
+            halo_blocks = 0
+            for hdx in range(-halo_radius, halo_radius + 1):
+                for hdz in range(-halo_radius, halo_radius + 1):
+                    distance = (hdx * hdx + hdz * hdz) ** 0.5
+                    if distance > halo_radius:
+                        continue
+                    hx, hz = tx + hdx, tz + hdz
+                    qx, qz = hx - x0, hz - z0
+                    if not (
+                        0 <= qx < dense["soil"].shape[0]
+                        and 0 <= qz < dense["soil"].shape[1]
+                        and dense["soil"][qx, qz]
+                        and dense["snow"][qx, qz] == 0
+                        and not dense["water"][qx, qz]
+                        and not dense["ice"][qx, qz]
+                    ):
+                        continue
+                    floor_name = V.canopy_floor_block(
+                        distance, halo_radius, damp_here,
+                        kind in ("spruce", "krummholz"),
+                        bhash(hx, hz, 6411),
+                    )
+                    if floor_name and setb(
+                        hx, int(dense["y"][qx, qz]), hz,
+                        P.surface_ids[S.IDX[floor_name]],
+                    ):
+                        halo_blocks += 1
+            if halo_blocks:
+                stats["canopy_floor"] = (
+                    stats.get("canopy_floor", 0) + halo_blocks
+                )
+            epiphytes = V.trunk_epiphytes(
+                trunks, damp_here, age_here, rng
+            )
+            epiphyte_blocks = write_soft_atomic(
+                (tx + dx, base + dy, tz + dz, P.prop_block(nm, pr))
+                for dx, dy, dz, nm, pr in epiphytes
+            )
+            if epiphyte_blocks:
+                stats["epiphytes"] = (
+                    stats.get("epiphytes", 0) + epiphyte_blocks
+                )
 
     # ---- ของตกแต่งแบบ Geophilic: ไม้ล้ม ตอไม้ ก้อนหิน --------------------------
     # วางบนตารางหยาบ สุ่มจากพิกัดล้วน จึงต่อเนื่องข้าม region
@@ -2447,6 +2680,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
             fp = float(forest_p[ix, iz])
             slope = float(D["slope"][ix, iz])
             damp = float(D["damp"][ix, iz])
+            interior = float(forest_interior[ix, iz])
+            age = float(stand_age[ix, iz]) * (0.55 + 0.45 * interior)
             in_shore = bool(shore[ix, iz])
             y = int(surf_y[ix, iz]) + 1
             roll = dr.random()
@@ -2457,7 +2692,8 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                     blocks = V.boulder(dr, damp > 0.55)
             elif fp > 0.35 and slope < 30:
                 wood = "spruce" if e > S.MONTANE else "oak"
-                if roll < 0.16:
+                fallen_t, stump_t, boulder_t, bush_t = E.deadwood_thresholds(age)
+                if roll < fallen_t:
                     blocks = V.fallen_log(dr, wood)
                     # เห็ด/มอสงอกบนท่อนไม้ผุ — จุดเด่นของป่าแบบ Geophilic
                     extra = []
@@ -2468,11 +2704,11 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
                                           "brown_mushroom" if rr < 0.18
                                           else "moss_carpet", {}))
                     blocks = blocks + extra
-                elif roll < 0.26:
+                elif roll < stump_t:
                     blocks = V.stump(dr, wood)
-                elif roll < 0.34:
+                elif roll < boulder_t:
                     blocks = V.boulder(dr, damp > 0.5)
-                elif roll < 0.50:
+                elif roll < bush_t:
                     blocks = V.bush(dr, "spruce" if e > S.SUBALPINE else "oak")
             elif e > S.TREELINE or slope > 26:
                 if roll < 0.22:
@@ -2482,15 +2718,24 @@ def process_region(level, P, surf_y, elev, lc, wdepth, x0, x1, z0, z1,
 
             if not blocks:
                 continue
-            n = 0
-            for dx, dy, dz, nm, pr in blocks:
-                jx, jz = ix + dx, iz + dz
-                if not (0 <= jx < object_surface.shape[0] and 0 <= jz < object_surface.shape[1]):
-                    continue
-                # ให้ของตกแต่งวางตามผิวดินของแต่ละคอลัมน์ ไม่ลอยข้ามเนิน
-                by = int(object_surface[jx, jz]) + 1
-                n += setb(wx + dx, by + dy, wz + dz,
-                          P.prop_block(nm, pr) if pr else P.plant(nm), soft=True)
+            # Decorations are multi-block objects too.  Use the same
+            # journal-backed atomic writer as trees so a collision, missing
+            # chunk, or region-edge partial write cannot leave a half-log,
+            # stump, or boulder behind.  Each column still resolves its own
+            # surface height before the object is committed.
+            def decor_items():
+                for dx, dy, dz, nm, pr in blocks:
+                    jx, jz = ix + dx, iz + dz
+                    if not (
+                        0 <= jx < object_surface.shape[0]
+                        and 0 <= jz < object_surface.shape[1]
+                    ):
+                        continue
+                    by = int(object_surface[jx, jz]) + 1
+                    bid = P.prop_block(nm, pr) if pr else P.plant(nm)
+                    yield (wx + dx, by + dy, wz + dz, bid)
+
+            n = write_soft_atomic(decor_items())
             if n:
                 stats["decor"] = stats.get("decor", 0) + 1
 
@@ -2586,7 +2831,7 @@ def select_pending_tiles(tiles, done, max_tiles=None):
     return pending
 
 
-def paint_fingerprint(hydrology_root=None):
+def paint_fingerprint(hydrology_root=None, glacier_detail=False):
     """Fingerprint every input that can change a fullscale tile result.
 
     ต้องแฮช product ของ **ชุดที่ใช้จริง** เดิมแฮชไฟล์ชุดเดิมตายตัว ทำให้เมื่อรัน
@@ -2603,6 +2848,7 @@ def paint_fingerprint(hydrology_root=None):
             "surface.py",
             "water_ecology.py",
             "ecology.py",
+            "atomic_writes.py",
             "biomes.py",
             "vegetation.py",
             "tree_schematics.py",
@@ -2631,7 +2877,10 @@ def paint_fingerprint(hydrology_root=None):
         raise FileNotFoundError(
             "paint fingerprint input missing: " + ", ".join(missing)
         )
-    return content_fingerprint(paths, version=PAINT_PIPELINE_VERSION)
+    version = (
+        f"{PAINT_PIPELINE_VERSION}|glacier_detail={int(bool(glacier_detail))}"
+    )
+    return content_fingerprint(paths, version=version)
 
 
 def main():
@@ -2876,6 +3125,9 @@ def main():
     terrain_only = "--terrain-only" in sys.argv
     lake_only = "--lake-only" in sys.argv
     vegetation_only = "--vegetation-only" in sys.argv
+    glacier_detail = "--glacier-detail" in sys.argv
+    if glacier_detail:
+        print("[ทดลอง] เปิด glacier crevasse + lateral moraine")
     if lake_only and "--patch" not in sys.argv:
         raise SystemExit("--lake-only requires --patch to keep the test scoped")
     exclusive = [
@@ -2946,7 +3198,9 @@ def main():
     meta_file = os.path.join(HERE, f"paint_progress{suffix}.meta.json")
     done = set()
     if patch is None:
-        signature = paint_fingerprint(hydro_root)
+        signature = paint_fingerprint(
+            hydro_root, glacier_detail=glacier_detail
+        )
         if "--resume" in sys.argv:
             metadata = load_progress_metadata(meta_file)
             if not os.path.exists(done_file) or metadata is None:
@@ -3151,6 +3405,7 @@ def main():
             flowing_water_mask=flowing_water_slice.T,
             flow_index=flow_index_slice.T,
             active_chunks=active_chunk_set,
+            glacier_detail=glacier_detail,
         )
         # คิว fluid tick เป็นตัวเลือก ไม่ใช่ค่าเริ่มต้น — ดู --fluid-ticks
         if fluid_ticks and (hydro_patch is not None or hydro_root is not None):
@@ -3197,6 +3452,11 @@ def main():
 
     print(f"\nเสร็จ — {total_chunks:,} chunks, ต้นไม้ {stats['trees']:,}, "
           f"พืช {stats['plants']:,}, ตกแต่ง {stats.get('decor',0):,}, "
+          f"epiphyte {stats.get('epiphytes',0):,}, "
+          f"canopy floor {stats.get('canopy_floor',0):,}, "
+          f"trampled {stats.get('trampled_ground',0):,}, "
+          f"crevasse {stats.get('glacier_crevasse',0):,}, "
+          f"moraine {stats.get('glacier_moraine',0):,}, "
           f"ใต้น้ำ {stats.get('underwater_decor',0):,}, "
           f"fluid ticks {stats.get('fluid_ticks',0):,}, "
           f"หิมะ {stats['snow']:,} "
